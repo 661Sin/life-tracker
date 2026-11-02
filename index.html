@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Life Tracker</title>
+  <!-- Inter font from Google Fonts (falls back to Segoe UI if offline) -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <!-- Side tabs (navigation): each slides out on hover; clicking switches section without reloading -->
+  <nav class="side-tabs" aria-label="Sections">
+    <a href="#pnl" class="tab" data-tab="pnl">
+      <span class="tab-label">PnL</span>
+      <svg class="tab-icon" viewBox="0 0 24 24" aria-hidden="true">
+        <rect x="4" y="13" width="3.5" height="7" rx="1"/>
+        <rect x="10.25" y="8" width="3.5" height="12" rx="1"/>
+        <rect x="16.5" y="4" width="3.5" height="16" rx="1"/>
+      </svg>
+    </a>
+    <a href="#life" class="tab" data-tab="life">
+      <span class="tab-label">Life</span>
+      <svg class="tab-icon" viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M12 20.5s-7.5-4.6-7.5-10.2A4.3 4.3 0 0 1 12 7.6a4.3 4.3 0 0 1 7.5 2.7c0 5.6-7.5 10.2-7.5 10.2z"/>
+      </svg>
+    </a>
+    <a href="#other" class="tab" data-tab="other">
+      <span class="tab-label">Other</span>
+      <svg class="tab-icon" viewBox="0 0 24 24" aria-hidden="true">
+        <circle cx="5" cy="12" r="2"/>
+        <circle cx="12" cy="12" r="2"/>
+        <circle cx="19" cy="12" r="2"/>
+      </svg>
+    </a>
+  </nav>
+
+  <!-- One section per tab; only the active one is shown -->
+  <main>
+    <section class="page" id="page-pnl">
+      <header class="page-header">
+        <h1>PnL</h1>
+        <button class="btn" data-open-modal="PnL">Add</button>
+      </header>
+      <div class="content-area"></div>
+    </section>
+
+    <section class="page" id="page-life">
+      <header class="page-header">
+        <h1>Life</h1>
+        <button class="btn" data-open-modal="Life">Add</button>
+      </header>
+      <div class="content-area"></div>
+    </section>
+
+    <section class="page" id="page-other">
+      <header class="page-header">
+        <h1>Other</h1>
+        <button class="btn" data-open-modal="Other">Add</button>
+      </header>
+      <div class="content-area"></div>
+    </section>
+  </main>
+
+  <!-- Modal: hidden until opened. Closes via X button, Escape, or clicking the dimmed backdrop. -->
+  <div class="modal" id="modal" hidden>
+    <div class="modal-backdrop" data-close-modal></div>
+    <div class="modal-box" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+      <div class="modal-head">
+        <h2 id="modal-title">Add</h2>
+        <button class="modal-close" data-close-modal aria-label="Close">&times;</button>
+      </div>
+      <p class="modal-body">Nothing here yet.</p>
+    </div>
+  </div>
+
+  <script src="script.js"></script>
+</body>
+</html>
