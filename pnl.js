@@ -309,7 +309,7 @@
       };
     });
     return sectionHead("Products", btn("Add product", "add-product", "", "btn-primary")) +
-      table([{ label: "Product" }, { label: "Price tiers (per unit · margin)" }, { label: "Landed cost/unit", num: true }, { label: "In stock", num: true }, { label: "Days to sell", num: true }, { label: "" }],
+      table([{ label: "Product" }, { label: "Price tiers (per unit · total · margin)" }, { label: "Landed cost/unit", num: true }, { label: "In stock", num: true }, { label: "Days to sell", num: true }, { label: "" }],
         rows, "No products yet. Add the things you sell, with their prices per unit at each quantity tier.") +
       `<p class="muted small">Margin = tier price − current landed cost per unit (average of stock in hand, or the latest incoming order). Margin % = margin ÷ tier price.</p>` +
       `<p class="muted small">Days to sell = average days from stock arriving to it selling (oldest units assumed to sell first).</p>`;
@@ -323,7 +323,10 @@
       const m = Calc.margin(t.price, cost);
       const marginHtml = m.perUnit === null ? "" :
         `<span class="${tone(m.perUnit)}">${signed(m.perUnit)}${m.pct === null ? "" : ` (${Math.round(m.pct)}%)`}</span>`;
-      return `<div class="tier-line"><span class="muted">${Calc.tierRange(tiers, t.min)}</span><b>${money(t.price)}</b>${marginHtml}</div>`;
+      // Total for the tier's starting qty, e.g. 2+ at $60 each = $120 for 2
+      const total = Calc.saleRevenue({ qty: t.min, unitPrice: t.price });
+      return `<div class="tier-line"><span class="muted">${Calc.tierRange(tiers, t.min)}</span><b>${money(t.price)}</b>` +
+        `<span class="muted">${money(total)} for ${t.min}</span>${marginHtml}</div>`;
     }).join("")}</div>`;
   }
 

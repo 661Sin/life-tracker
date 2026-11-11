@@ -415,8 +415,9 @@ td.actions { width: 1%; white-space: nowrap; }
 /* Price tiers: rows in the product form, lines in the Products table */
 .tier-rows { display: flex; flex-direction: column; gap: 8px; }
 .tier-row { display: grid; grid-template-columns: 1fr 1fr auto; gap: 8px; align-items: end; }
-.tier-list { display: flex; flex-direction: column; gap: 4px; }
-.tier-line { display: grid; grid-template-columns: 4.5em 6em auto; gap: 8px; font-size: 13px; font-variant-numeric: tabular-nums; }
+/* One grid for all of a product's tiers, so the columns line up: range, price, total, margin */
+.tier-list { display: grid; grid-template-columns: repeat(4, max-content); gap: 4px 12px; font-size: 13px; font-variant-numeric: tabular-nums; }
+.tier-line { display: contents; }
 .tier-line .muted { margin: 0; }
 
 .preview b { color: var(--text); font-weight: 600; }
@@ -507,6 +508,9 @@ td.actions { width: 1%; white-space: nowrap; }
     flex-shrink: 0;
   }
   .tbl td .cell { text-align: right; min-width: 0; }
+  /* Price tiers are too wide to sit beside their label: put them underneath */
+  .tbl td:has(.tier-list) { flex-direction: column; gap: 6px; }
+  .tier-list { gap: 4px 8px; font-size: 12px; text-align: left; }
   .tbl td.actions { width: 100%; justify-content: flex-end; padding-top: 8px; }
   .tbl td.actions::before { display: none; }
 }
