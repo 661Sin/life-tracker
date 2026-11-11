@@ -1,0 +1,115 @@
+// ---------- PnL data storage ----------
+// All PnL data lives in one object saved in the browser's localStorage
+// (a small storage area each browser gives a website). It survives closing the
+// page, but it belongs to this browser only: PC and phone don't share it yet.
+// Use Accounts → Export backup to keep a copy as a file.
+//
+// Only raw entries are stored (products, orders, sales, ...). Balances, stock
+// and profits are always recalculated by pnl-calc.js.
+
+const PNL_STORAGE_KEY = "lifeTracker.pnl.v1";
+const PNL_DEFAULT_CATEGORIES = ["Packaging", "Ads/Marketing", "Travel/Fuel", "Other"];
+const CASH_ID = "cash"; // the built-in Cash account, the default everywhere
+
+function pnlEmptyData() {
+  return {
+    version: 1,
+    products: [],   // { id, name, notes, prices: { t1, t5, t10 } }
+    accounts: [{ id: CASH_ID, name: "Cash", opening: 0 }], // { id, name, opening }
+    orders: [],     // { id, productId, supplier, qty, unitCost, shipping, fees, orderDate, expectedDate, accountId, notes, receivedDate?, receivedQty? }
+    sales: [],      // { id, productId, qty, unitPrice, date, accountId, buyer }
+    expenses: [],   // { id, date, amount, category, description, accountId, productId, recurring: none|weekly|monthly, recurCount?, fromRecurringId? }
+    transfers: [],  // transfer: { id, type:"transfer", fromId, toId, amount, date, note }  adjustment: { id, type:"adjust", accountId, amount (+/-), date, note, cashCount? }
+    categories: PNL_DEFAULT_CATEGORIES.slice(),
+  };
+}
+
+const Store = {
+  data: null,
+
+  load() {
+    let saved = null;
+    try { saved = JSON.parse(localStorage.getItem(PNL_STORAGE_KEY)); } catch (e) { saved = null; }
+    this.data = this.normalise(saved);
+    this.runRecurring();
+  },
+
+  // Fill in anything missing (e.g. from an older version or a partial backup)
+  normalise(d) {
+    const base = pnlEmptyData();
+    if (!d || typeof d !== "object") return base;
+    for (const key of Object.keys(base)) {
+      if (Array.isArray(base[key]) && !Array.isArray(d[key])) d[key] = base[key];
+    }
+    if (!d.accounts.some((a) => a.id === CASH_ID)) d.accounts.unshift({ id: CASH_ID, name: "Cash", opening: 0 });
+    d.version = 1;
+    return d;
+  },
+
+  save() {
+    try {
+      localStorage.setItem(PNL_STORAGE_KEY, JSON.stringify(this.data));
+    } catch (e) {
+      alert("Couldn't save your data in this browser. Export a backup from Accounts to be safe.");
+    }
+  },
+
+  uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 7); },
+  get(list, id) { return this.data[list].find((x) => x.id === id); },
+
+  // Every change goes through here. The change is tried on a copy first; if it
+  // would make any product's stock go below zero, it's refused with a message.
+  // Returns an error message, or null when saved.
+  commit(change) {
+    const draft = structuredClone(this.data);
+    change(draft);
+    const before = Calc.inventory(this.data).shortages;
+    const after = Calc.inventory(draft).shortages;
+    for (const id in after) {
+      if (before[id]) continue;
+      const p = draft.products.find((x) => x.id === id);
+      const s = after[id];
+      return `Not enough stock of "${p ? p.name : "this product"}": on ${s.date} you'd be ${s.short} unit${s.short === 1 ? "" : "s"} short. Check the sale dates and received orders.`;
+    }
+    this.data = draft;
+    this.save();
+    return null;
+  },
+
+  // Log any weekly/monthly repeats that have come due. The original entry is
+  // the first payment; each repeat becomes its own normal expense entry.
+  runRecurring() {
+    const today = Calc.today();
+    let added = 0;
+    for (const tpl of this.data.expenses.slice()) {
+      if (tpl.recurring !== "weekly" && tpl.recurring !== "monthly") continue;
+      let k = (tpl.recurCount || 0) + 1;
+      let next;
+      while ((next = Calc.nthOccurrence(tpl.date, tpl.recurring, k)) <= today && added < 2000) {
+        this.data.expenses.push({
+          id: this.uid(), date: next, amount: tpl.amount, category: tpl.category,
+          description: tpl.description, accountId: tpl.accountId, productId: tpl.productId || "",
+          recurring: "none", fromRecurringId: tpl.id,
+        });
+        tpl.recurCount = k;
+        k++;
+        added++;
+      }
+    }
+    if (added) this.save();
+    return added;
+  },
+
+  // ---- Backup ----
+  exportText() { return JSON.stringify(this.data, null, 2); },
+
+  importText(text) {
+    const d = JSON.parse(text); // throws if the file isn't valid JSON
+    if (!d || typeof d !== "object" || !Array.isArray(d.products) || !Array.isArray(d.accounts)) {
+      throw new Error("This file doesn't look like a Life Tracker PnL backup.");
+    }
+    this.data = this.normalise(d);
+    this.save();
+    this.runRecurring();
+  },
+};
