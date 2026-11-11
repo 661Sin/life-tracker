@@ -47,8 +47,10 @@ const Calc = {
   },
 
   // ---- Orders ----
-  // Total paid for an order: units + shipping + fees (duties/GST)
+  // Total paid for the whole order. Orders store one `total`; older entries
+  // stored unit cost + shipping + fees, which still add up the same way.
   orderTotal(o) {
+    if (o.total !== undefined && o.total !== null) return Number(o.total) || 0;
     return (Number(o.unitCost) || 0) * (Number(o.qty) || 0) + (Number(o.shipping) || 0) + (Number(o.fees) || 0);
   },
   // Landed cost per unit. Once received, the full cost is spread over the units

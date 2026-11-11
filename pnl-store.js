@@ -16,7 +16,7 @@ function pnlEmptyData() {
     version: 1,
     products: [],   // { id, name, notes, prices: { t1, t5, t10 } }
     accounts: [{ id: CASH_ID, name: "Cash", opening: 0 }], // { id, name, opening }
-    orders: [],     // { id, productId, supplier, qty, unitCost, shipping, fees, orderDate, expectedDate, accountId, notes, receivedDate?, receivedQty? }
+    orders: [],     // { id, productId, supplier, qty, total (whole order), orderDate, expectedDate, accountId, notes, receivedDate?, receivedQty? }
     sales: [],      // { id, productId, qty, unitPrice, date, accountId, buyer }
     expenses: [],   // { id, date, amount, category, description, accountId, productId, recurring: none|weekly|monthly, recurCount?, fromRecurringId? }
     transfers: [],  // transfer: { id, type:"transfer", fromId, toId, amount, date, note }  adjustment: { id, type:"adjust", accountId, amount (+/-), date, note, cashCount? }

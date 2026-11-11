@@ -438,17 +438,14 @@
     if (!Store.data.products.length) return needProducts();
     const today = Calc.today();
     const o = id ? Store.get("orders", id) : {
-      productId: "", supplier: "", qty: "", unitCost: "", shipping: "", fees: "",
-      orderDate: today, expectedDate: "", accountId: CASH_ID, notes: "",
+      productId: "", supplier: "", qty: "", orderDate: today, expectedDate: "", accountId: CASH_ID, notes: "",
     };
     const received = !!o.receivedDate;
     const form = openForm(id ? "Edit order" : "Add order", `
       ${row(field("Product", select("productId", productOptions("Choose a product…"), o.productId, "required")),
             field("Supplier", textInput("supplier", o.supplier)))}
       ${row(field("Quantity ordered", qtyInput("qty", o.qty, "required")),
-            field("Unit cost", moneyInput("unitCost", o.unitCost, "required")))}
-      ${row(field("Shipping cost", moneyInput("shipping", o.shipping)),
-            field("Other fees", moneyInput("fees", o.fees), "Duties, GST, etc."))}
+            field("Total price", moneyInput("total", id ? Calc.round2(Calc.orderTotal(o)) : "", "required"), "What you paid for the whole order."))}
       ${row(field("Order date", dateInput("orderDate", o.orderDate, "required")),
             field("Expected arrival", dateInput("expectedDate", o.expectedDate)))}
       ${received ? row(field("Received date", dateInput("receivedDate", o.receivedDate, "required")),
@@ -462,9 +459,11 @@
       if (v.expectedDate && v.expectedDate < v.orderDate) return "Expected arrival can't be before the order date.";
       const item = {
         ...o, id: o.id || Store.uid(), productId: v.productId, supplier: v.supplier, qty: num(v.qty),
-        unitCost: num(v.unitCost), shipping: num(v.shipping), fees: num(v.fees), orderDate: v.orderDate,
+        total: num(v.total), orderDate: v.orderDate,
         expectedDate: v.expectedDate, accountId: v.accountId, notes: v.notes,
       };
+      // Older orders stored unit cost + shipping + fees; the single total replaces them
+      delete item.unitCost; delete item.shipping; delete item.fees;
       if (received) {
         if (!Number.isInteger(num(v.receivedQty)) || num(v.receivedQty) < 0) return "Quantity received must be a whole number.";
         if (v.receivedDate < v.orderDate) return "Received date can't be before the order date.";
@@ -477,9 +476,8 @@
     const preview = form.querySelector("[data-preview]");
     const update = () => {
       const v = formValues(form);
-      const draft = { qty: num(v.qty), unitCost: num(v.unitCost), shipping: num(v.shipping), fees: num(v.fees), receivedDate: v.receivedDate, receivedQty: num(v.receivedQty) };
-      preview.innerHTML = `<span>Total cost <b>${money(Calc.orderTotal(draft))}</b></span>
-        <span>Landed cost/unit <b>${Calc.landedUnitCost(draft) ? money(Calc.landedUnitCost(draft)) : "—"}</b></span>`;
+      const draft = { qty: num(v.qty), total: num(v.total), receivedDate: v.receivedDate, receivedQty: num(v.receivedQty) };
+      preview.innerHTML = `<span>Landed cost/unit <b>${Calc.landedUnitCost(draft) ? money(Calc.landedUnitCost(draft)) : "—"}</b></span>`;
     };
     form.addEventListener("input", update);
     update();
