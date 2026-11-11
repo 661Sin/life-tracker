@@ -10,17 +10,20 @@
 const PNL_STORAGE_KEY = "lifeTracker.pnl.v1";
 const PNL_DEFAULT_CATEGORIES = ["Packaging", "Ads/Marketing", "Travel/Fuel", "Other"];
 const CASH_ID = "cash"; // the built-in Cash account, the default everywhere
+const BANK_ID = "bank"; // the built-in Bank account (cash deposits, transfers received, spending)
 
 function pnlEmptyData() {
   return {
     version: 1,
     products: [],   // { id, name, notes, prices: { t1, t5, t10 } }
-    accounts: [{ id: CASH_ID, name: "Cash", opening: 0 }], // { id, name, opening }
+    accounts: [{ id: CASH_ID, name: "Cash", opening: 0 }, { id: BANK_ID, name: "Bank", opening: 0 }], // { id, name, opening }
     orders: [],     // { id, productId, supplier, qty, total (whole order), orderDate, expectedDate, accountId, notes, receivedDate?, receivedQty? }
     sales: [],      // { id, productId, qty, unitPrice, date, accountId, buyer }
     stockAdjustments: [], // "Set stock": { id, productId, date, qty (+/− units), unitCost (for added units), note }
     expenses: [],   // { id, date, amount, category, description, accountId, productId, recurring: none|weekly|monthly, recurCount?, fromRecurringId? }
-    transfers: [],  // transfer: { id, type:"transfer", fromId, toId, amount, date, note }  adjustment: { id, type:"adjust", accountId, amount (+/-), date, note, cashCount? }
+    // transfer: { id, type:"transfer", fromId, toId, amount, date, note }  (Cash → Bank = a cash deposit)
+    // adjustment: { id, type:"adjust", accountId, amount (+/-), date, note, from? (who sent a bank transfer), cashCount? }
+    transfers: [],
     categories: PNL_DEFAULT_CATEGORIES.slice(),
   };
 }
@@ -43,6 +46,9 @@ const Store = {
       if (Array.isArray(base[key]) && !Array.isArray(d[key])) d[key] = base[key];
     }
     if (!d.accounts.some((a) => a.id === CASH_ID)) d.accounts.unshift({ id: CASH_ID, name: "Cash", opening: 0 });
+    if (!d.accounts.some((a) => a.id === BANK_ID)) {
+      d.accounts.splice(d.accounts.findIndex((a) => a.id === CASH_ID) + 1, 0, { id: BANK_ID, name: "Bank", opening: 0 });
+    }
     d.version = 1;
     return d;
   },

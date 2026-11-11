@@ -36,6 +36,7 @@
 
   const productName = (id) => { const p = Store.get("products", id); return p ? p.name : "(deleted product)"; };
   const accountName = (id) => { const a = Store.get("accounts", id); return a ? a.name : "(deleted account)"; };
+  const isDeposit = (t) => t.type === "transfer" && t.fromId === CASH_ID && t.toId === BANK_ID;
   const isUsedAccount = (id) => {
     const d = Store.data;
     return d.orders.some((x) => x.accountId === id) || d.sales.some((x) => x.accountId === id) ||
@@ -86,8 +87,8 @@
     `<select name="${name}" ${extra}>${options.map(([v, t]) => `<option value="${esc(v)}"${v === selected ? " selected" : ""}>${esc(t)}</option>`).join("")}</select>`;
   const productOptions = (blank) => [...(blank ? [["", blank]] : []), ...Store.data.products.slice().sort(byName).map((p) => [p.id, p.name])];
   const accountOptions = () => Store.data.accounts.map((a) => [a.id, a.name]);
-  // With only the Cash account (the normal case) there's nothing to choose,
-  // so the "Paid from / into" picker is hidden and everything goes to Cash.
+  // "Paid from / into" picker (Cash or Bank, default Cash). Hidden if only
+  // one account exists, then everything goes to Cash.
   const accountField = (label, value) => Store.data.accounts.length > 1
     ? field(label, select("accountId", accountOptions(), value))
     : `<input type="hidden" name="accountId" value="${esc(value || CASH_ID)}">`;
@@ -163,7 +164,8 @@
         <div class="stat-label">Total capital</div>
         <div class="capital-value">${money(snap.capital)}</div>
         <div class="capital-parts">
-          <div><span class="muted">Cash</span><b>${money(snap.cashTotal)}</b></div>
+          <div><span class="muted">Cash</span><b>${money(snap.balances[CASH_ID] || 0)}</b></div>
+          <div><span class="muted">Bank</span><b>${money(snap.balances[BANK_ID] || 0)}</b></div>
           <div><span class="muted">Stock in hand</span><b>${money(snap.stockValue)}</b></div>
         </div>
       </div>
@@ -391,31 +393,54 @@
 
   // ---------- Accounts ----------
   PAGES.accounts = (data, snap) => {
-    // Money added or spent by hand (stored as adjustments), plus any older
-    // transfers / cash counts, newest first
+    // Money added, spent, deposited or received by hand (adjustments and
+    // transfers), newest first
     const rows = data.transfers.slice().sort((a, b) => (a.date < b.date ? 1 : -1)).map((t) => {
       const isAdjust = t.type === "adjust";
-      const kind = !isAdjust ? "Transfer" : t.cashCount ? "Cash count" : t.amount < 0 ? "Spent" : "Added";
+      const kind = !isAdjust ? (isDeposit(t) ? "Deposit" : "Transfer")
+        : t.cashCount ? "Cash count"
+        : t.amount < 0 ? "Spent"
+        : t.accountId === BANK_ID ? "Received" : "Added";
+      const note = [t.from ? "From " + esc(t.from) : "", esc(t.note)].filter(Boolean).join(" · ");
       return {
         cells: [
           fmtDate(t.date),
+          isAdjust ? esc(accountName(t.accountId)) : `${esc(accountName(t.fromId))} → ${esc(accountName(t.toId))}`,
           kind,
-          (isAdjust ? esc(t.note) || muted("No note") : `${esc(accountName(t.fromId))} → ${esc(accountName(t.toId))}` + muted(esc(t.note))),
+          note || muted("No note"),
           isAdjust ? `<span class="${tone(t.amount)}">${signed(t.amount)}</span>` : money(t.amount),
           rowActions([["Edit", "edit-transfer", t.id], ["Delete", "delete-transfer", t.id, "btn-ghost danger"]]),
         ],
       };
     });
+    const cash = snap.balances[CASH_ID] || 0;
+    const bank = snap.balances[BANK_ID] || 0;
+    const balanceCard = (label, value, hint, actions) => `
+      <div class="card">
+        <div class="stat-label">${label}</div>
+        <div class="capital-value ${value < 0 ? "neg" : ""}">${money(value)}</div>
+        <p class="muted">${hint}</p>
+        <div class="section-actions">${actions}</div>
+      </div>`;
 
-    return sectionHead("Accounts", btn("Spend money", "spend-money") + btn("Add money", "add-money", "", "btn-primary")) +
+    return sectionHead("Accounts") +
       `<div class="card capital">
-        <div class="stat-label">Cash balance</div>
+        <div class="stat-label">Overall balance</div>
         <div class="capital-value ${snap.cashTotal < 0 ? "neg" : ""}">${money(snap.cashTotal)}</div>
-        <div class="muted">Sales add to this, orders and expenses take from it. Use Add / Spend money for anything else.</div>
+        <div class="capital-parts">
+          <div><span class="muted">Cash</span><b>${money(cash)}</b></div>
+          <div><span class="muted">Bank</span><b>${money(bank)}</b></div>
+        </div>
       </div>
-      <h3 class="group-title">Money added and spent</h3>` +
-      table([{ label: "Date" }, { label: "Type" }, { label: "Note" }, { label: "Amount", num: true }, { label: "" }],
-        rows, "Nothing added or spent by hand yet.") +
+      <div class="panels">
+        ${balanceCard("Cash", cash, "Sales, orders and expenses use Cash unless you pick Bank.",
+          btn("Spend", "spend-money") + btn("Add money", "add-money", "", "btn-primary"))}
+        ${balanceCard("Bank", bank, "Deposit cash, log transfers people send you, and money spent from the bank.",
+          btn("Spend", "bank-spend") + btn("Received transfer", "bank-receive") + btn("Deposit cash", "bank-deposit", "", "btn-primary"))}
+      </div>
+      <h3 class="group-title">Money in and out</h3>` +
+      table([{ label: "Date" }, { label: "Account" }, { label: "Type" }, { label: "Note" }, { label: "Amount", num: true }, { label: "" }],
+        rows, "Nothing added, spent or deposited by hand yet.") +
       `<h3 class="group-title">Backup</h3>
       <div class="card backup">
         <p class="muted">Your data is saved in this browser only. Export a backup file now and then, and import it to restore your data or move it to another device.</p>
@@ -700,28 +725,52 @@
   // Bill values offered in the "Count by bills" helper on the Add / Spend money form
   const BILLS = [100, 50, 20, 10, 5];
 
-  // Add money to / spend money from Cash. Saved as an adjustment:
-  // positive amount = added, negative = spent. The user always types a positive number.
+  // The kinds of money entry on the Accounts page. All typed as a positive number.
+  //   add / spend          : Cash adjustment, + or −
+  //   deposit              : transfer Cash → Bank (cash taken to the bank)
+  //   receive / bank-spend : Bank adjustment, + (someone sent you money) or −
+  const MONEY_KINDS = {
+    add:          { title: "Add money",            edit: "Edit money added",    submit: "Add",     account: CASH_ID, sign: 1,  bills: true,  hint: "e.g. Starting cash, Put in from savings" },
+    spend:        { title: "Spend money",          edit: "Edit money spent",    submit: "Spend",   account: CASH_ID, sign: -1, bills: true,  hint: "e.g. Took out for personal use" },
+    deposit:      { title: "Deposit cash to bank", edit: "Edit deposit",        submit: "Deposit", bills: true,  hint: "e.g. Weekly deposit" },
+    receive:      { title: "Received transfer",    edit: "Edit transfer received", submit: "Add",  account: BANK_ID, sign: 1,  from: true,   hint: "e.g. Payment for 5 units" },
+    "bank-spend": { title: "Spend from bank",      edit: "Edit bank spending",  submit: "Spend",   account: BANK_ID, sign: -1, hint: "e.g. Card payment, Rent" },
+  };
+  const moneyKindOf = (t) => isDeposit(t) ? "deposit"
+    : t.accountId === BANK_ID ? (t.amount < 0 ? "bank-spend" : "receive")
+    : (t.amount < 0 ? "spend" : "add");
+
+  // Add / spend / deposit / receive form. Cash entries are saved as adjustments
+  // (positive = in, negative = out); a deposit is a transfer Cash → Bank, so it
+  // lowers Cash and raises Bank by the same amount (overall balance unchanged).
   // "Count by bills": enter how many of each bill, and the Amount (and a note
   // like "2 × $50, 3 × $20" if the note is empty) is filled in for you.
   function moneyForm(kind, id) {
-    const t = id ? Store.get("transfers", id) : { accountId: CASH_ID, amount: "", date: Calc.today(), note: "" };
-    const spend = id ? t.amount < 0 : kind === "spend";
-    const form = openForm(spend ? (id ? "Edit money spent" : "Spend money") : (id ? "Edit money added" : "Add money"), `
-      <p class="field-label">Count by bills (optional)</p>
+    const t = id ? Store.get("transfers", id) : { amount: "", date: Calc.today(), note: "", from: "" };
+    if (id) kind = moneyKindOf(t);
+    const k = MONEY_KINDS[kind];
+    const cashNow = (Calc.balances(Store.data)[CASH_ID] || 0) + (id && kind === "deposit" ? Number(t.amount) || 0 : 0);
+    const form = openForm(id ? k.edit : k.title, `
+      ${kind === "deposit" ? `<p class="muted">Moves money from Cash to Bank. Cash on hand in the tracker: <b>${money(cashNow)}</b></p>` : ""}
+      ${k.bills ? `<p class="field-label">Count by bills (optional)</p>
       <div class="bills">
         ${BILLS.map((b) => `<label class="bill"><span>$${b} ×</span>${qtyInput("bill" + b, "", 'placeholder="0" data-bill="' + b + '"', 0)}</label>`).join("")}
         <label class="bill"><span>Coins / other $</span>${moneyInput("billOther", "", 'placeholder="0" data-bill="1"')}</label>
-      </div>
+      </div>` : ""}
+      ${k.from ? field("From (who sent it)", textInput("from", t.from || "", 'placeholder="e.g. a customer\'s name"')) : ""}
       ${row(field("Amount", moneyInput("amount", t.amount === "" ? "" : Math.abs(t.amount), "required")),
             field("Date", dateInput("date", t.date, "required")))}
-      ${field("Note (optional)", textInput("note", t.note, `placeholder="${spend ? "e.g. Took out for personal use" : "e.g. Starting cash, Put in from savings"}"`))}`,
+      ${field("Note (optional)", textInput("note", t.note, `placeholder="${k.hint}"`))}`,
     (v) => {
       if (!(num(v.amount) > 0)) return "Enter an amount above 0.";
-      const amount = spend ? -num(v.amount) : num(v.amount);
-      const item = { ...t, id: t.id || Store.uid(), type: "adjust", accountId: t.accountId || CASH_ID, amount, date: v.date, note: v.note };
+      const base = { id: t.id || Store.uid(), date: v.date, note: v.note };
+      const item = kind === "deposit"
+        ? { ...base, type: "transfer", fromId: CASH_ID, toId: BANK_ID, amount: num(v.amount) }
+        : { ...base, type: "adjust", accountId: k.account, amount: k.sign * num(v.amount), ...(k.from ? { from: v.from } : {}) };
       return Store.commit((d) => upsertIn(d.transfers, item));
-    }, { submitLabel: spend ? "Spend" : "Add" });
+    }, { submitLabel: k.submit });
+
+    if (!k.bills) return;
 
     let autoNote = ""; // the note we filled in, so we only replace our own text
     form.addEventListener("input", (e) => {
@@ -881,6 +930,7 @@
     "add-account": () => accountForm(),
     "edit-account": accountForm,
     "delete-account": (id) => {
+      if (id === CASH_ID || id === BANK_ID) return alert("The built-in Cash and Bank accounts can't be deleted.");
       if (isUsedAccount(id)) return alert("This account has entries linked to it. Move or delete those first.");
       confirmDelete("account", "accounts", id);
     },
@@ -892,9 +942,12 @@
     "add-adjust": () => adjustForm(),
     "add-money": () => moneyForm("add"),
     "spend-money": () => moneyForm("spend"),
+    "bank-deposit": () => moneyForm("deposit"),
+    "bank-receive": () => moneyForm("receive"),
+    "bank-spend": () => moneyForm("bank-spend"),
     "edit-transfer": (id) => {
       const t = Store.get("transfers", id);
-      if (t.type !== "adjust") return transferForm(id);
+      if (t.type !== "adjust") return isDeposit(t) ? moneyForm(null, id) : transferForm(id);
       return t.cashCount ? adjustForm(id) : moneyForm(null, id);
     },
     "delete-transfer": (id) => confirmDelete("entry", "transfers", id),
