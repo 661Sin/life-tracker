@@ -158,6 +158,7 @@
       stat(label, money(mVal), `All time: <span class="${colour ? tone(allVal) : ""}">${money(allVal)}</span>`, colour ? tone(mVal) : "");
 
     return `
+      <button type="button" class="btn btn-primary btn-big" data-action="quick-sale">+ Sale</button>
       ${!data.products.length ? `<div class="card notice">Start by adding your products in <a href="#pnl/products">Products</a>, and your starting cash in <a href="#pnl/accounts">Accounts</a> (Add money).</div>` : ""}
       ${overdue ? `<a class="card notice warn" href="#pnl/orders">${plural(overdue, "order")} overdue: check On the way</a>` : ""}
       <div class="card capital">
@@ -591,7 +592,16 @@
   }
 
   // ---------- Sale ----------
-  function saleForm(id, presetProductId) {
+  // Qty box with − / + buttons either side (tap-friendly on phones)
+  const stepper = (name, value) => `<div class="stepper">
+      <button type="button" class="btn" data-step="-1" aria-label="One less">−</button>
+      ${qtyInput(name, value, "required")}
+      <button type="button" class="btn" data-step="1" aria-label="One more">+</button>
+    </div>`;
+
+  // Record / edit a sale. opts.quick = the Dashboard's "+ Sale": same form and
+  // rules, laid out for speed (date and buyer tucked under "More").
+  function saleForm(id, presetProductId, opts = {}) {
     if (!Store.data.products.length) return needProducts();
     const s = id ? Store.get("sales", id) : {
       productId: presetProductId || "", qty: 1, unitPrice: "", date: Calc.today(), accountId: CASH_ID, buyer: "",
@@ -605,15 +615,25 @@
     const options = [["", "Choose a product…"], ...Store.data.products.slice().sort(byName).map((p) => [p.id, `${p.name} (${available(p.id)} in stock)`])];
 
     const hasTotal = s.total !== undefined && s.total !== null && s.total !== "";
-    const form = openForm(id ? "Edit sale" : "Record sale", `
-      ${field("Product", select("productId", options, s.productId, "required"))}
-      ${field("Quantity sold", qtyInput("qty", s.qty, "required"))}
+    const quick = !!opts.quick;
+    const priceRow = `
       ${row(field("Price per unit", moneyInput("unitPrice", s.unitPrice)),
             field("OR total for the lot", moneyInput("lotTotal", hasTotal ? s.total : "")))}
-      <p class="field-hint"><span data-tier-hint></span> <button type="button" class="link" data-use-tier>Use tier price</button></p>
-      ${row(field("Date", dateInput("date", s.date, "required")),
-            accountField("Paid into", s.accountId))}
-      ${field("Buyer / location (optional)", textInput("buyer", s.buyer))}
+      <p class="field-hint"><span data-tier-hint></span> <button type="button" class="link" data-use-tier>Use tier price</button></p>`;
+    const dateField = field("Date", dateInput("date", s.date, "required"));
+    const buyerField = field("Buyer / location (optional)", textInput("buyer", s.buyer));
+    const form = openForm(id ? "Edit sale" : quick ? "Quick sale" : "Record sale", quick ? `
+      ${field("Product", select("productId", options, s.productId, "required"))}
+      ${field("Quantity", stepper("qty", s.qty))}
+      ${priceRow}
+      ${accountField("Paid into", s.accountId)}
+      <details class="more"><summary>More: date, buyer</summary><div class="form">${dateField}${buyerField}</div></details>
+      <div class="preview big" data-preview></div>` : `
+      ${field("Product", select("productId", options, s.productId, "required"))}
+      ${field("Quantity sold", stepper("qty", s.qty))}
+      ${priceRow}
+      ${row(dateField, accountField("Paid into", s.accountId))}
+      ${buyerField}
       <div class="preview" data-preview></div>`,
     (v) => {
       if (!v.productId) return "Choose a product.";
@@ -625,7 +645,7 @@
       const item = { ...s, id: s.id || Store.uid(), productId: v.productId, qty: q, ...price.fields, date: v.date, accountId: v.accountId, buyer: v.buyer };
       if (price.fields.total === undefined) delete item.total;
       return Store.commit((d) => upsertIn(d.sales, item));
-    });
+    }, { submitLabel: quick ? "Save sale" : "Save" });
 
     // Price per unit and lot total fill each other in. `mode` is whichever one
     // you typed last; that one is saved exactly (a lot total is stored as `total`).
@@ -672,6 +692,12 @@
     });
     form.querySelector("[data-use-tier]").addEventListener("click", () => {
       priceTouched = false;
+      update();
+    });
+    form.addEventListener("click", (e) => {
+      const b = e.target.closest("[data-step]");
+      if (!b) return;
+      form.qty.value = Math.max(1, Math.floor(num(form.qty.value)) + Number(b.dataset.step));
       update();
     });
     update();
@@ -976,6 +1002,7 @@
     },
     "delete-order": (id) => confirmDelete("order", "orders", id),
     "add-sale": () => saleForm(),
+    "quick-sale": () => saleForm(null, null, { quick: true }),
     "sell-product": (id) => saleForm(null, id),
     "edit-sale": saleForm,
     "delete-sale": (id) => confirmDelete("sale", "sales", id),
