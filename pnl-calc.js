@@ -5,7 +5,8 @@
 // from the raw entries, so editing or deleting an entry updates everything.
 
 const Calc = {
-  // Selling-price tiers (by quantity in one sale)
+  // The OLD fixed selling-price tiers. Only used to read products saved before
+  // flexible tiers existed (prices: { t1, t5, t10 }).
   TIERS: [
     { key: "t1", label: "1–4", min: 1 },
     { key: "t5", label: "5–9", min: 5 },
@@ -60,21 +61,62 @@ const Calc = {
     return units > 0 ? this.orderTotal(o) / units : 0;
   },
 
-  // ---- Prices ----
-  tierFor(qty) {
-    let tier = this.TIERS[0];
-    for (const t of this.TIERS) if (qty >= t.min) tier = t;
-    return tier;
+  // ---- Prices (quantity tiers) ----
+  // Each product has its own list of tiers: "from `min` units → `price` per unit".
+  // Older products stored three fixed prices { t1, t5, t10 }; those are read as
+  // tiers from 1, 5 and 10 (Store also converts them when data is loaded).
+  productTiers(product) {
+    if (!product) return [];
+    let list = product.tiers;
+    if (!Array.isArray(list)) {
+      const old = product.prices || {};
+      list = this.TIERS.map((t) => ({ min: t.min, price: old[t.key] }));
+    }
+    return list
+      .filter((t) => t && t.price !== null && t.price !== undefined && t.price !== "" && Number(t.min) >= 1)
+      .map((t) => ({ min: Math.floor(Number(t.min)), price: Number(t.price) }))
+      .sort((a, b) => a.min - b.min);
+  },
+  // The tier a sale of `qty` units uses: the one with the highest "from" qty
+  // that the sale reaches (e.g. 120 units → the 100+ tier). null if none.
+  tierFor(product, qty) {
+    let found = null;
+    for (const t of this.productTiers(product)) if (qty >= t.min) found = t;
+    return found;
   },
   tierPrice(product, qty) {
-    if (!product || !product.prices) return null;
-    const v = product.prices[this.tierFor(qty).key];
-    return v === null || v === undefined || v === "" ? null : Number(v);
+    const t = this.tierFor(product, qty);
+    return t ? t.price : null;
+  },
+  // "1–9", "10–49", "500+" for the tier starting at `min` in `tiers`
+  tierRange(tiers, min) {
+    const next = tiers.find((t) => t.min > min);
+    if (!next) return `${min}+`;
+    return next.min - 1 === min ? String(min) : `${min}–${next.min - 1}`;
+  },
+  // Margin per unit and margin % (of the price) for a price, given the cost
+  // per unit. Both null when the cost isn't known yet.
+  margin(price, cost) {
+    if (cost === null || cost === undefined) return { perUnit: null, pct: null };
+    const perUnit = price - cost;
+    return { perUnit, pct: price > 0 ? (perUnit / price) * 100 : null };
   },
 
   // ---- Sales ----
-  saleRevenue(s) { return (Number(s.unitPrice) || 0) * (Number(s.qty) || 0); },
+  // A sale stores its price per unit; when it was entered as a total for the
+  // whole lot (e.g. 500 units for $10,000) it also stores `total`, which wins,
+  // so odd per-unit prices (e.g. $33.333…) never cause rounding gaps.
+  saleRevenue(s) {
+    if (s.total !== undefined && s.total !== null && s.total !== "") return Number(s.total) || 0;
+    return (Number(s.unitPrice) || 0) * (Number(s.qty) || 0);
+  },
+  saleUnitPrice(s) { return Number(s.qty) > 0 ? this.saleRevenue(s) / Number(s.qty) : Number(s.unitPrice) || 0; },
   saleCost(s, snap) { return snap.inv.saleCogs[s.id] || 0; },
+  // Expected cost of goods for a sale not saved yet (used by the forms' previews)
+  estimateSaleCost(snap, productId, qty) {
+    const st = snap.inv.byProduct[productId];
+    return st ? st.avgCost * (Number(qty) || 0) : 0;
+  },
   saleProfit(s, snap) { return this.saleRevenue(s) - this.saleCost(s, snap); },
 
   // ---- Inventory (weighted average cost) ----

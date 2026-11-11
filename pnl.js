@@ -188,17 +188,11 @@
   PAGES.products = (data, snap) => {
     const rows = data.products.slice().sort(byName).map((p) => {
       const cost = Calc.currentUnitCost(data, snap, p.id);
-      const priceCell = (key) => {
-        const v = p.prices && p.prices[key];
-        if (v === null || v === undefined || v === "") return `<span class="muted">—</span>`;
-        const margin = cost === null ? "" : `<div class="small ${tone(v - cost)}">${signed(v - cost)} margin</div>`;
-        return money(v) + margin;
-      };
       const st = snap.inv.byProduct[p.id];
       return {
         cells: [
           `<b>${esc(p.name)}</b>${muted(esc(p.notes))}`,
-          ...Calc.TIERS.map((t) => priceCell(t.key)),
+          tierList(p, cost),
           cost === null ? `<span class="muted">Not known yet</span>` : money(cost),
           st && st.qty ? String(st.qty) : "0",
           rowActions([["Set stock", "set-stock", p.id], ["Edit", "edit-product", p.id], ["Delete", "delete-product", p.id, "btn-ghost danger"]]),
@@ -206,10 +200,22 @@
       };
     });
     return sectionHead("Products", btn("Add product", "add-product", "", "btn-primary")) +
-      table([{ label: "Product" }, ...Calc.TIERS.map((t) => ({ label: `${t.label} units`, num: true })), { label: "Landed cost/unit", num: true }, { label: "In stock", num: true }, { label: "" }],
+      table([{ label: "Product" }, { label: "Price tiers (per unit · margin)" }, { label: "Landed cost/unit", num: true }, { label: "In stock", num: true }, { label: "" }],
         rows, "No products yet. Add the things you sell, with their prices per unit at each quantity tier.") +
-      `<p class="muted small">Margin = tier price − current landed cost per unit (average of stock in hand, or the latest incoming order).</p>`;
+      `<p class="muted small">Margin = tier price − current landed cost per unit (average of stock in hand, or the latest incoming order). Margin % = margin ÷ tier price.</p>`;
   };
+
+  // A product's tiers, one per line: "10–49  $40.00  +$12.00 (30%)"
+  function tierList(p, cost) {
+    const tiers = Calc.productTiers(p);
+    if (!tiers.length) return `<span class="muted">No prices set</span>`;
+    return `<div class="tier-list">${tiers.map((t) => {
+      const m = Calc.margin(t.price, cost);
+      const marginHtml = m.perUnit === null ? "" :
+        `<span class="${tone(m.perUnit)}">${signed(m.perUnit)}${m.pct === null ? "" : ` (${Math.round(m.pct)}%)`}</span>`;
+      return `<div class="tier-line"><span class="muted">${Calc.tierRange(tiers, t.min)}</span><b>${money(t.price)}</b>${marginHtml}</div>`;
+    }).join("")}</div>`;
+  }
 
   // ---------- On the way ----------
   PAGES.orders = (data, snap) => {
@@ -322,7 +328,7 @@
           fmtDate(s.date),
           `<b>${esc(productName(s.productId))}</b>${muted(esc(s.buyer))}`,
           String(s.qty),
-          money(s.unitPrice),
+          money(Calc.saleUnitPrice(s)),
           money(Calc.saleRevenue(s)),
           money(Calc.saleCost(s, snap)),
           `<span class="${tone(profit)}">${money(profit)}</span>`,
@@ -455,22 +461,52 @@
 
   // ---------- Product ----------
   function productForm(id) {
-    const p = id ? Store.get("products", id) : { name: "", notes: "", prices: {} };
-    const prices = p.prices || {};
-    openForm(id ? "Edit product" : "Add product", `
+    const p = id ? Store.get("products", id) : { name: "", notes: "", tiers: [{ min: 1, price: "" }] };
+    const start = Calc.productTiers(p);
+    const tierRow = (t = { min: "", price: "" }) => `
+      <div class="tier-row" data-tier-row>
+        <label class="bill"><span>From qty</span>${qtyInput("tierMin", t.min, 'placeholder="e.g. 10"')}</label>
+        <label class="bill"><span>Price per unit</span>${moneyInput("tierPrice", t.price, 'placeholder="0.00"')}</label>
+        <button type="button" class="btn btn-sm btn-ghost danger" data-remove-tier aria-label="Remove tier">Remove</button>
+      </div>`;
+    const form = openForm(id ? "Edit product" : "Add product", `
       ${field("Product name", textInput("name", p.name, "required"))}
-      <p class="field-label">Selling price per unit</p>
-      <div class="form-row three">
-        ${Calc.TIERS.map((t) => field(`${t.label} units`, moneyInput(t.key, prices[t.key]))).join("")}
+      <div class="field">
+        <span class="field-label">Price tiers</span>
+        <div class="tier-rows" data-tier-rows>${(start.length ? start : [{ min: 1, price: "" }]).map(tierRow).join("")}</div>
+        <span class="field-hint">A sale uses the tier with the highest “from” qty it reaches (e.g. 120 units uses the 100+ price).</span>
+        <div><button type="button" class="btn btn-sm" data-add-tier>+ Add tier</button></div>
       </div>
       ${field("Notes (optional)", textArea("notes", p.notes))}`,
-    (v) => {
+    (v, f) => {
       if (!v.name) return "Enter a product name.";
       const clash = Store.data.products.find((x) => x.id !== p.id && x.name.toLowerCase() === v.name.toLowerCase());
       if (clash) return "You already have a product with that name.";
-      const item = { ...p, id: p.id || Store.uid(), name: v.name, notes: v.notes, prices: {} };
-      for (const t of Calc.TIERS) item.prices[t.key] = optNum(v[t.key]);
+      const tiers = [];
+      for (const r of f.querySelectorAll("[data-tier-row]")) {
+        const minText = r.querySelector("[name=tierMin]").value.trim();
+        const priceText = r.querySelector("[name=tierPrice]").value.trim();
+        if (minText === "" && priceText === "") continue; // blank row: ignore
+        const min = Number(minText);
+        if (!Number.isInteger(min) || min < 1) return "Each tier's “from qty” must be a whole number, 1 or more.";
+        if (priceText === "" || !(Number(priceText) >= 0)) return `Enter a price for the tier from ${min} units.`;
+        if (tiers.some((t) => t.min === min)) return `Two tiers start at ${min} units. Each tier needs a different “from” qty.`;
+        tiers.push({ min, price: Number(priceText) });
+      }
+      tiers.sort((a, b) => a.min - b.min);
+      const item = { ...p, id: p.id || Store.uid(), name: v.name, notes: v.notes, tiers };
+      delete item.prices; // old fixed-tier format
       return Store.commit((d) => upsertIn(d.products, item));
+    });
+
+    const rows = form.querySelector("[data-tier-rows]");
+    form.addEventListener("click", (e) => {
+      if (e.target.closest("[data-add-tier]")) {
+        rows.insertAdjacentHTML("beforeend", tierRow());
+        rows.lastElementChild.querySelector("input").focus();
+      }
+      const rm = e.target.closest("[data-remove-tier]");
+      if (rm) rm.closest("[data-tier-row]").remove();
     });
   }
 
@@ -568,10 +604,13 @@
     };
     const options = [["", "Choose a product…"], ...Store.data.products.slice().sort(byName).map((p) => [p.id, `${p.name} (${available(p.id)} in stock)`])];
 
+    const hasTotal = s.total !== undefined && s.total !== null && s.total !== "";
     const form = openForm(id ? "Edit sale" : "Record sale", `
       ${field("Product", select("productId", options, s.productId, "required"))}
-      ${row(field("Quantity sold", qtyInput("qty", s.qty, "required")),
-            field("Price per unit", moneyInput("unitPrice", s.unitPrice, "required"), `<span data-tier-hint></span> <button type="button" class="link" data-use-tier>Use tier price</button>`))}
+      ${field("Quantity sold", qtyInput("qty", s.qty, "required"))}
+      ${row(field("Price per unit", moneyInput("unitPrice", s.unitPrice)),
+            field("OR total for the lot", moneyInput("lotTotal", hasTotal ? s.total : "")))}
+      <p class="field-hint"><span data-tier-hint></span> <button type="button" class="link" data-use-tier>Use tier price</button></p>
       ${row(field("Date", dateInput("date", s.date, "required")),
             accountField("Paid into", s.accountId))}
       ${field("Buyer / location (optional)", textInput("buyer", s.buyer))}
@@ -581,32 +620,54 @@
       const q = num(v.qty);
       if (!Number.isInteger(q) || q < 1) return "Quantity must be a whole number, 1 or more.";
       if (q > available(v.productId)) return `Only ${available(v.productId)} in stock for that product.`;
-      const item = { ...s, id: s.id || Store.uid(), productId: v.productId, qty: q, unitPrice: num(v.unitPrice), date: v.date, accountId: v.accountId, buyer: v.buyer };
+      const price = priceFrom(v);
+      if (price.error) return price.error;
+      const item = { ...s, id: s.id || Store.uid(), productId: v.productId, qty: q, ...price.fields, date: v.date, accountId: v.accountId, buyer: v.buyer };
+      if (price.fields.total === undefined) delete item.total;
       return Store.commit((d) => upsertIn(d.sales, item));
     });
 
-    const priceInput = form.querySelector("[name=unitPrice]");
+    // Price per unit and lot total fill each other in. `mode` is whichever one
+    // you typed last; that one is saved exactly (a lot total is stored as `total`).
+    const unitInput = form.querySelector("[name=unitPrice]");
+    const totalInput = form.querySelector("[name=lotTotal]");
     const hint = form.querySelector("[data-tier-hint]");
     const preview = form.querySelector("[data-preview]");
+    let mode = hasTotal ? "total" : "unit";
     let priceTouched = !!id; // when editing, keep the saved price unless asked
-    const tierPriceNow = () => {
-      const v = formValues(form);
-      return Calc.tierPrice(Store.get("products", v.productId), Math.max(1, num(v.qty)));
-    };
+
+    function priceFrom(v) {
+      const q = num(v.qty);
+      if (mode === "total") {
+        if (v.lotTotal === "" || !(num(v.lotTotal) >= 0)) return { error: "Enter a price per unit or a total for the lot." };
+        return { fields: { total: num(v.lotTotal), unitPrice: Calc.round2(Calc.saleUnitPrice({ qty: q, total: num(v.lotTotal) })) } };
+      }
+      if (v.unitPrice === "" || !(num(v.unitPrice) >= 0)) return { error: "Enter a price per unit or a total for the lot." };
+      return { fields: { unitPrice: num(v.unitPrice) } };
+    }
+
     const update = () => {
       const v = formValues(form);
-      const q = Math.max(1, num(v.qty));
-      const tp = tierPriceNow();
-      if (!priceTouched && tp !== null) priceInput.value = tp;
-      hint.textContent = v.productId ? `${Calc.tierFor(q).label} units tier: ${tp === null ? "no price set" : money(tp)}.` : "";
-      const st = snap.inv.byProduct[v.productId];
-      const revenue = Calc.saleRevenue({ qty: num(v.qty), unitPrice: num(priceInput.value) });
-      const cost = st ? st.avgCost * num(v.qty) : 0;
-      preview.innerHTML = v.productId ? `<span>Revenue <b>${money(revenue)}</b></span><span>Cost <b>${money(cost)}</b></span>
-        <span>Profit <b class="${tone(revenue - cost)}">${money(revenue - cost)}</b></span>` : "";
+      const q = num(v.qty);
+      const product = Store.get("products", v.productId);
+      const tier = Calc.tierFor(product, Math.max(1, q));
+      if (!priceTouched && tier) { unitInput.value = tier.price; mode = "unit"; }
+      // Fill in the other price box
+      if (mode === "unit") totalInput.value = unitInput.value === "" || !q ? "" : Calc.round2(Calc.saleRevenue({ qty: q, unitPrice: num(unitInput.value) }));
+      else unitInput.value = totalInput.value === "" || !q ? "" : Calc.round2(Calc.saleUnitPrice({ qty: q, total: num(totalInput.value) }));
+      const tiers = Calc.productTiers(product);
+      hint.textContent = !v.productId ? "" : !tier ? `No tier price for ${plural(q, "unit")}.`
+        : `Tier used: ${Calc.tierRange(tiers, tier.min)} units at ${money(tier.price)} each.`;
+      const price = priceFrom(formValues(form));
+      if (!v.productId || price.error) { preview.innerHTML = ""; return; }
+      const revenue = Calc.saleRevenue({ qty: q, ...price.fields });
+      const cost = Calc.estimateSaleCost(snap, v.productId, q);
+      preview.innerHTML = `<span>Revenue <b>${money(revenue)}</b></span><span>Cost <b>${money(cost)}</b></span>
+        <span>Profit <b class="${tone(revenue - cost)}">${money(revenue - cost)}</b></span>`;
     };
     form.addEventListener("input", (e) => {
-      if (e.target === priceInput) priceTouched = true;
+      if (e.target === unitInput) { priceTouched = true; mode = "unit"; }
+      if (e.target === totalInput) { priceTouched = true; mode = "total"; }
       update();
     });
     form.querySelector("[data-use-tier]").addEventListener("click", () => {

@@ -382,6 +382,13 @@ td.actions { width: 1%; white-space: nowrap; }
 /* "Count by bills" on the Add / Spend money form: compact grid, 3 across even on phones */
 .bills { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
 .bill { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--text-muted); min-width: 0; }
+/* Price tiers: rows in the product form, lines in the Products table */
+.tier-rows { display: flex; flex-direction: column; gap: 8px; }
+.tier-row { display: grid; grid-template-columns: 1fr 1fr auto; gap: 8px; align-items: end; }
+.tier-list { display: flex; flex-direction: column; gap: 4px; }
+.tier-line { display: grid; grid-template-columns: 4.5em 6em auto; gap: 8px; font-size: 13px; font-variant-numeric: tabular-nums; }
+.tier-line .muted { margin: 0; }
+
 .preview b { color: var(--text); font-weight: 600; }
 .preview b.pos { color: var(--positive); }
 .preview b.neg { color: var(--accent); }

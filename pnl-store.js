@@ -15,10 +15,10 @@ const BANK_ID = "bank"; // the built-in Bank account (cash deposits, transfers r
 function pnlEmptyData() {
   return {
     version: 1,
-    products: [],   // { id, name, notes, prices: { t1, t5, t10 } }
+    products: [],   // { id, name, notes, tiers: [{ min (from qty), price (per unit) }] sorted by min }
     accounts: [{ id: CASH_ID, name: "Cash", opening: 0 }, { id: BANK_ID, name: "Bank", opening: 0 }], // { id, name, opening }
     orders: [],     // { id, productId, supplier, qty, total (whole order), orderDate, expectedDate, accountId, notes, receivedDate?, receivedQty? }
-    sales: [],      // { id, productId, qty, unitPrice, date, accountId, buyer }
+    sales: [],      // { id, productId, qty, unitPrice, total? (when entered as a lot total), date, accountId, buyer }
     stockAdjustments: [], // "Set stock": { id, productId, date, qty (+/− units), unitCost (for added units), note }
     expenses: [],   // { id, date, amount, category, description, accountId, productId, recurring: none|weekly|monthly, recurCount?, fromRecurringId? }
     // transfer: { id, type:"transfer", fromId, toId, amount, date, note }  (Cash → Bank = a cash deposit)
@@ -44,6 +44,11 @@ const Store = {
     if (!d || typeof d !== "object") return base;
     for (const key of Object.keys(base)) {
       if (Array.isArray(base[key]) && !Array.isArray(d[key])) d[key] = base[key];
+    }
+    // Older products had fixed prices { t1, t5, t10 }: turn them into tiers from 1, 5 and 10
+    for (const p of d.products) {
+      if (!Array.isArray(p.tiers)) p.tiers = Calc.productTiers(p);
+      delete p.prices;
     }
     if (!d.accounts.some((a) => a.id === CASH_ID)) d.accounts.unshift({ id: CASH_ID, name: "Cash", opening: 0 });
     if (!d.accounts.some((a) => a.id === BANK_ID)) {
