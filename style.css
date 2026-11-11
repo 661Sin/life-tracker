@@ -355,7 +355,7 @@ td.actions { width: 1%; white-space: nowrap; }
 .field { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 .field-label { font-size: 13px; color: var(--text-muted); }
 .field-hint { font-size: 12px; color: var(--text-muted); }
-.field input, .field select, .field textarea {
+.field input, .field select, .field textarea, .bill input {
   font: inherit;
   font-size: 15px;
   width: 100%;
@@ -367,7 +367,7 @@ td.actions { width: 1%; white-space: nowrap; }
   color-scheme: dark;            /* dark date pickers and dropdowns */
 }
 .field textarea { resize: vertical; }
-.field input:focus, .field select:focus, .field textarea:focus { outline: none; border-color: var(--accent); }
+.field input:focus, .field select:focus, .field textarea:focus, .bill input:focus { outline: none; border-color: var(--accent); }
 .form-error { color: var(--accent); font-size: 14px; }
 .form-actions { display: flex; justify-content: flex-end; gap: 8px; }
 .preview {
@@ -378,6 +378,10 @@ td.actions { width: 1%; white-space: nowrap; }
   color: var(--text-muted);
 }
 .preview:empty { display: none; }
+
+/* "Count by bills" on the Add / Spend money form: compact grid, 3 across even on phones */
+.bills { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.bill { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--text-muted); min-width: 0; }
 .preview b { color: var(--text); font-weight: 600; }
 .preview b.pos { color: var(--positive); }
 .preview b.neg { color: var(--accent); }

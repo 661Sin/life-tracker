@@ -697,12 +697,22 @@
     });
   }
 
+  // Bill values offered in the "Count by bills" helper on the Add / Spend money form
+  const BILLS = [100, 50, 20, 10, 5];
+
   // Add money to / spend money from Cash. Saved as an adjustment:
   // positive amount = added, negative = spent. The user always types a positive number.
+  // "Count by bills": enter how many of each bill, and the Amount (and a note
+  // like "2 × $50, 3 × $20" if the note is empty) is filled in for you.
   function moneyForm(kind, id) {
     const t = id ? Store.get("transfers", id) : { accountId: CASH_ID, amount: "", date: Calc.today(), note: "" };
     const spend = id ? t.amount < 0 : kind === "spend";
-    openForm(spend ? (id ? "Edit money spent" : "Spend money") : (id ? "Edit money added" : "Add money"), `
+    const form = openForm(spend ? (id ? "Edit money spent" : "Spend money") : (id ? "Edit money added" : "Add money"), `
+      <p class="field-label">Count by bills (optional)</p>
+      <div class="bills">
+        ${BILLS.map((b) => `<label class="bill"><span>$${b} ×</span>${qtyInput("bill" + b, "", 'placeholder="0" data-bill="' + b + '"', 0)}</label>`).join("")}
+        <label class="bill"><span>Coins / other $</span>${moneyInput("billOther", "", 'placeholder="0" data-bill="1"')}</label>
+      </div>
       ${row(field("Amount", moneyInput("amount", t.amount === "" ? "" : Math.abs(t.amount), "required")),
             field("Date", dateInput("date", t.date, "required")))}
       ${field("Note (optional)", textInput("note", t.note, `placeholder="${spend ? "e.g. Took out for personal use" : "e.g. Starting cash, Put in from savings"}"`))}`,
@@ -712,6 +722,21 @@
       const item = { ...t, id: t.id || Store.uid(), type: "adjust", accountId: t.accountId || CASH_ID, amount, date: v.date, note: v.note };
       return Store.commit((d) => upsertIn(d.transfers, item));
     }, { submitLabel: spend ? "Spend" : "Add" });
+
+    let autoNote = ""; // the note we filled in, so we only replace our own text
+    form.addEventListener("input", (e) => {
+      if (!e.target.dataset.bill) return;
+      let total = 0;
+      const parts = [];
+      for (const b of BILLS) {
+        const n = Math.max(0, Math.floor(num(form["bill" + b].value)));
+        if (n) { total += n * b; parts.push(`${n} × $${b}`); }
+      }
+      const other = Math.max(0, num(form.billOther.value));
+      if (other) { total += other; parts.push(`${money(other)} coins/other`); }
+      form.amount.value = total ? Calc.round2(total) : "";
+      if (form.note.value === autoNote) form.note.value = autoNote = parts.join(", ");
+    });
   }
 
   function cashCountForm() {
