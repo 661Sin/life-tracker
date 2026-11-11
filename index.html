@@ -42,9 +42,9 @@
     <section class="page" id="page-pnl">
       <header class="page-header">
         <h1>PnL</h1>
-        <button class="btn" data-open-modal="PnL">Add</button>
       </header>
-      <div class="content-area"></div>
+      <!-- Filled in by pnl.js: sub-tabs (Dashboard, Products, On the way, ...) and their content -->
+      <div id="pnl-root"></div>
     </section>
 
     <section class="page" id="page-life">
@@ -72,10 +72,14 @@
         <h2 id="modal-title">Add</h2>
         <button class="modal-close" data-close-modal aria-label="Close">&times;</button>
       </div>
-      <p class="modal-body">Nothing here yet.</p>
+      <div class="modal-body" id="modal-body"></div>
     </div>
   </div>
 
   <script src="script.js"></script>
+  <!-- PnL: calculations first, then storage, then the screens that use both -->
+  <script src="pnl-calc.js"></script>
+  <script src="pnl-store.js"></script>
+  <script src="pnl.js"></script>
 </body>
 </html>
