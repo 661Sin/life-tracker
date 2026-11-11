@@ -39,7 +39,8 @@
   const isDeposit = (t) => t.type === "transfer" && t.fromId === CASH_ID && t.toId === BANK_ID;
   const isUsedAccount = (id) => {
     const d = Store.data;
-    return d.orders.some((x) => x.accountId === id) || d.sales.some((x) => x.accountId === id) ||
+    return d.orders.some((x) => x.accountId === id) ||
+      d.sales.some((x) => x.accountId === id || (x.payments || []).some((p) => p.accountId === id)) ||
       d.expenses.some((x) => x.accountId === id) ||
       d.transfers.some((x) => x.accountId === id || x.fromId === id || x.toId === id);
   };
@@ -168,8 +169,10 @@
           <div><span class="muted">Cash</span><b>${money(snap.balances[CASH_ID] || 0)}</b></div>
           <div><span class="muted">Bank</span><b>${money(snap.balances[BANK_ID] || 0)}</b></div>
           <div><span class="muted">Stock in hand</span><b>${money(snap.stockValue)}</b></div>
+          <div><span class="muted">Owed to me</span><b>${money(snap.owedTotal)}</b></div>
         </div>
       </div>
+      ${owedSection(Calc.owedList(data, today), snap.owedTotal)}
       ${profitChart(Calc.monthlyStats(data, snap, month, 12))}
       <h3 class="group-title">${fmtMonth(month)}</h3>
       <div class="stats">
@@ -185,6 +188,24 @@
           ${profitable.length ? `<p class="muted small">Net profit: sales − cost of goods − expenses linked to the product.</p>` : ""}</div>
       </div>`;
   };
+
+  // ---------- Owed to me (Dashboard) ----------
+  function owedSection(list, total) {
+    if (!list.length) return "";
+    const overdue = list.filter((x) => x.overdue).length;
+    const rows = list.map(({ sale: s, owed, overdue: late, days }) => ({
+      cls: late ? "overdue" : "",
+      cells: [
+        `<b>${esc(s.buyer)}</b>${muted(`${esc(productName(s.productId))} × ${s.qty}`)}`,
+        fmtDate(s.date) + muted(`${plural(days, "day")} ago`),
+        !s.dueDate ? `<span class="muted">No due date</span>` : late ? badge(`Overdue since ${fmtDate(s.dueDate)}`, "warn") : fmtDate(s.dueDate),
+        `<b>${money(owed)}</b>${Calc.salePaid(s) > 0 ? muted(`of ${money(Calc.saleRevenue(s))}`) : ""}`,
+        rowActions([["Mark paid", "mark-paid", s.id, "btn-primary"]]),
+      ],
+    }));
+    return `<h3 class="group-title">Owed to me: ${money(total)}${overdue ? ` <span class="badge warn">${overdue} overdue</span>` : ""}</h3>` +
+      table([{ label: "Buyer" }, { label: "Sold" }, { label: "Due" }, { label: "Owed", num: true }, { label: "" }], rows, "");
+  }
 
   // ---------- Monthly net profit chart (Dashboard) ----------
   // Plain SVG bars around a zero line: green = profit, orange = loss.
@@ -399,9 +420,20 @@
     const month = Calc.monthOf(Calc.today());
     const m = Calc.periodStats(data, snap, month);
     const all = Calc.periodStats(data, snap, null);
+    const today = Calc.today();
     const rows = data.sales.slice().sort((a, b) => (a.date < b.date ? 1 : -1)).map((s) => {
       const profit = Calc.saleProfit(s, snap);
+      const owed = Calc.saleOwed(s);
+      const overdue = owed > 0 && s.dueDate && s.dueDate < today;
+      let paidCell = esc(accountName(s.accountId));
+      if (s.paidLater) {
+        const accounts = [...new Set((s.payments || []).map((p) => accountName(p.accountId)))].join(", ");
+        paidCell = owed > 0
+          ? badge(`Owes ${money(owed)}`, overdue ? "warn" : "") + muted(s.dueDate ? `Due ${fmtDate(s.dueDate)}` : "Paid later")
+          : `Paid later${muted(esc(accounts))}`;
+      }
       return {
+        cls: overdue ? "overdue" : "",
         cells: [
           fmtDate(s.date),
           `<b>${esc(productName(s.productId))}</b>${muted(esc(s.buyer))}`,
@@ -410,8 +442,10 @@
           money(Calc.saleRevenue(s)),
           money(Calc.saleCost(s, snap)),
           `<span class="${tone(profit)}">${money(profit)}</span>`,
-          esc(accountName(s.accountId)),
-          rowActions([["Edit", "edit-sale", s.id], ["Delete", "delete-sale", s.id, "btn-ghost danger"]]),
+          paidCell,
+          rowActions([
+            ...(s.paidLater ? [[owed > 0 ? "Mark paid" : "Payments", "mark-paid", s.id, owed > 0 ? "btn-primary" : ""]] : []),
+            ["Edit", "edit-sale", s.id], ["Delete", "delete-sale", s.id, "btn-ghost danger"]]),
         ],
       };
     });
@@ -422,7 +456,7 @@
         ${stat("Units sold this month", String(m.units), `All time: ${all.units}`)}
       </div>` +
       table([{ label: "Date" }, { label: "Product" }, { label: "Qty", num: true }, { label: "Price/unit", num: true }, { label: "Revenue", num: true },
-        { label: "Cost", num: true }, { label: "Profit", num: true }, { label: "Paid into" }, { label: "" }],
+        { label: "Cost", num: true }, { label: "Profit", num: true }, { label: "Paid" }, { label: "" }],
         rows, "No sales yet.") +
       `<p class="muted small">Profit per sale = revenue − landed cost of the units sold (weighted average).</p>`;
   };
@@ -698,18 +732,28 @@
             field("OR total for the lot", moneyInput("lotTotal", hasTotal ? s.total : "")))}
       <p class="field-hint"><span data-tier-hint></span> <button type="button" class="link" data-use-tier>Use tier price</button></p>`;
     const dateField = field("Date", dateInput("date", s.date, "required"));
-    const buyerField = field("Buyer / location (optional)", textInput("buyer", s.buyer));
+    const buyerField = `<label class="field"><span class="field-label" data-buyer-label>Buyer / location (optional)</span>${textInput("buyer", s.buyer)}</label>`;
+    const accountWrap = `<div data-account-wrap>${accountField("Paid into", s.accountId)}</div>`;
+    const paidSoFar = s.paidLater ? Calc.salePaid(s) : 0;
+    // "Paid later": the sale counts now, the money arrives when you mark it paid
+    const laterBlock = `
+      <label class="check"><input type="checkbox" name="paidLater"${s.paidLater ? " checked" : ""}> Paid later (the buyer owes me)</label>
+      <div data-later-fields hidden>
+        ${field("Due date (optional)", dateInput("dueDate", s.dueDate), paidSoFar ? `Paid so far: ${money(paidSoFar)}. Unticking “Paid later” removes these payments and puts the full amount into the account you pick.` : "")}
+      </div>`;
     const form = openForm(id ? "Edit sale" : quick ? "Quick sale" : "Record sale", quick ? `
       ${field("Product", select("productId", options, s.productId, "required"))}
       ${field("Quantity", stepper("qty", s.qty))}
       ${priceRow}
-      ${accountField("Paid into", s.accountId)}
+      ${accountWrap}
+      ${laterBlock}
       <details class="more"><summary>More: date, buyer</summary><div class="form">${dateField}${buyerField}</div></details>
       <div class="preview big" data-preview></div>` : `
       ${field("Product", select("productId", options, s.productId, "required"))}
       ${field("Quantity sold", stepper("qty", s.qty))}
       ${priceRow}
-      ${row(dateField, accountField("Paid into", s.accountId))}
+      ${row(dateField, accountWrap)}
+      ${laterBlock}
       ${buyerField}
       <div class="preview" data-preview></div>`,
     (v) => {
@@ -721,8 +765,34 @@
       if (price.error) return price.error;
       const item = { ...s, id: s.id || Store.uid(), productId: v.productId, qty: q, ...price.fields, date: v.date, accountId: v.accountId, buyer: v.buyer };
       if (price.fields.total === undefined) delete item.total;
+      if (v.paidLater) {
+        if (!v.buyer) return "Enter the buyer's name, so you know who owes you.";
+        item.paidLater = true;
+        item.dueDate = v.dueDate;
+        item.payments = s.payments || [];
+        if (Calc.salePaid(item) > Calc.saleRevenue(item) + 0.005) {
+          return `This sale's total is less than the ${money(Calc.salePaid(item))} already paid. Remove payments first (Sales → Mark paid).`;
+        }
+      } else {
+        delete item.paidLater; delete item.dueDate; delete item.payments;
+      }
       return Store.commit((d) => upsertIn(d.sales, item));
     }, { submitLabel: quick ? "Save sale" : "Save" });
+
+    const laterBox = form.querySelector("[name=paidLater]");
+    const laterFields = form.querySelector("[data-later-fields]");
+    const accountBox = form.querySelector("[data-account-wrap]");
+    const buyerLabel = form.querySelector("[data-buyer-label]");
+    const syncLater = () => {
+      const later = laterBox.checked;
+      laterFields.hidden = !later;
+      accountBox.hidden = later;
+      form.buyer.required = later;
+      buyerLabel.textContent = later ? "Buyer (who owes you)" : "Buyer / location (optional)";
+      if (later && quick) form.querySelector("details.more").open = true;
+    };
+    laterBox.addEventListener("change", () => { syncLater(); update(); });
+    syncLater();
 
     // Price per unit and lot total fill each other in. `mode` is whichever one
     // you typed last; that one is saved exactly (a lot total is stored as `total`).
@@ -759,8 +829,10 @@
       if (!v.productId || price.error) { preview.innerHTML = ""; return; }
       const revenue = Calc.saleRevenue({ qty: q, ...price.fields });
       const cost = Calc.estimateSaleCost(snap, v.productId, q);
+      const owed = v.paidLater ? Calc.saleOwed({ ...s, qty: q, ...price.fields, total: price.fields.total, paidLater: true }) : 0;
       preview.innerHTML = `<span>Revenue <b>${money(revenue)}</b></span><span>Cost <b>${money(cost)}</b></span>
-        <span>Profit <b class="${tone(revenue - cost)}">${money(revenue - cost)}</b></span>`;
+        <span>Profit <b class="${tone(revenue - cost)}">${money(revenue - cost)}</b></span>
+        ${v.paidLater ? `<span>Owed to you <b>${money(owed)}</b></span>` : ""}`;
     };
     form.addEventListener("input", (e) => {
       if (e.target === unitInput) { priceTouched = true; mode = "unit"; }
@@ -778,6 +850,51 @@
       update();
     });
     update();
+  }
+
+  // ---------- Mark paid (payment for a "paid later" sale) ----------
+  // Part payments are fine: each is saved in the sale's `payments` and adds to
+  // the account you pick on its date. Earlier payments can be removed here.
+  function paymentForm(saleId) {
+    const s = Store.get("sales", saleId);
+    const owed = Calc.saleOwed(s);
+    const payments = (s.payments || []).slice().sort((a, b) => (a.date < b.date ? -1 : 1));
+    const form = openForm(`Mark paid: ${s.buyer || "buyer"}`, `
+      <p class="muted">${esc(productName(s.productId))} × ${s.qty}, sold ${fmtDate(s.date)}${s.dueDate ? `, due ${fmtDate(s.dueDate)}` : ""}.</p>
+      <div class="preview">
+        <span>Sale total <b>${money(Calc.saleRevenue(s))}</b></span>
+        <span>Paid so far <b>${money(Calc.salePaid(s))}</b></span>
+        <span>Still owed <b class="${owed > 0 ? "neg" : ""}">${money(owed)}</b></span>
+      </div>
+      ${payments.length ? `<ul class="cat-list">${payments.map((p) => `
+        <li><span>${fmtDate(p.date)} · ${esc(accountName(p.accountId))} · <b>${money(p.amount)}</b></span>
+          <button type="button" class="btn btn-sm btn-ghost danger" data-remove-payment="${esc(p.id)}">Remove</button></li>`).join("")}</ul>` : ""}
+      ${owed > 0 ? `
+        ${row(field("Amount received", moneyInput("amount", owed, "required"), "Less than the full amount = a part payment."),
+              field("Date", dateInput("date", Calc.today(), "required")))}
+        ${field("Paid into", select("accountId", accountOptions(), CASH_ID))}` : `<p class="muted">Fully paid.</p>`}`,
+    (v) => {
+      if (!(owed > 0)) return "This sale is already fully paid.";
+      const amount = Calc.round2(num(v.amount));
+      if (!(amount > 0)) return "Enter an amount above 0.";
+      if (amount > owed) return `Only ${money(owed)} is still owed on this sale.`;
+      const payment = { id: Store.uid(), amount, date: v.date, accountId: v.accountId };
+      return Store.commit((d) => {
+        const x = d.sales.find((y) => y.id === saleId);
+        x.payments = [...(x.payments || []), payment];
+      });
+    }, { submitLabel: "Mark paid" });
+
+    form.addEventListener("click", (e) => {
+      const b = e.target.closest("[data-remove-payment]");
+      if (!b || !confirm("Remove this payment? The money comes back off its account.")) return;
+      Store.commit((d) => {
+        const x = d.sales.find((y) => y.id === saleId);
+        x.payments = (x.payments || []).filter((p) => p.id !== b.dataset.removePayment);
+      });
+      render();
+      paymentForm(saleId);
+    });
   }
 
   // ---------- Expense ----------
@@ -1080,6 +1197,7 @@
     "delete-order": (id) => confirmDelete("order", "orders", id),
     "add-sale": () => saleForm(),
     "quick-sale": () => saleForm(null, null, { quick: true }),
+    "mark-paid": paymentForm,
     "sell-product": (id) => saleForm(null, id),
     "edit-sale": saleForm,
     "delete-sale": (id) => confirmDelete("sale", "sales", id),

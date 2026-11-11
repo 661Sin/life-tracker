@@ -111,6 +111,25 @@ const Calc = {
     return (Number(s.unitPrice) || 0) * (Number(s.qty) || 0);
   },
   saleUnitPrice(s) { return Number(s.qty) > 0 ? this.saleRevenue(s) / Number(s.qty) : Number(s.unitPrice) || 0; },
+  // "Paid later" sales count as sales straight away (stock leaves, profit
+  // counts) but only bring money in through their payments.
+  salePaid(s) {
+    if (!s.paidLater) return this.saleRevenue(s);
+    return this.sum(s.payments || [], (p) => Number(p.amount) || 0);
+  },
+  saleOwed(s) { return s.paidLater ? Math.max(0, this.round2(this.saleRevenue(s) - this.salePaid(s))) : 0; },
+  // Unpaid sales, oldest first: { sale, owed, overdue, days (since the sale) }
+  owedList(data, today) {
+    return data.sales
+      .filter((s) => this.saleOwed(s) > 0)
+      .map((s) => ({
+        sale: s,
+        owed: this.saleOwed(s),
+        overdue: !!(s.dueDate && s.dueDate < today),
+        days: this.daysBetween(s.date, today),
+      }))
+      .sort((a, b) => (a.sale.date < b.sale.date ? -1 : a.sale.date > b.sale.date ? 1 : 0));
+  },
   saleCost(s, snap) { return snap.inv.saleCogs[s.id] || 0; },
   // Expected cost of goods for a sale not saved yet (used by the forms' previews)
   estimateSaleCost(snap, productId, qty) {
@@ -190,7 +209,10 @@ const Calc = {
     for (const a of data.accounts) b[a.id] = Number(a.opening) || 0;
     const add = (id, amount) => { if (id in b) b[id] += amount; };
     for (const o of data.orders) add(o.accountId, -this.orderTotal(o));
-    for (const s of data.sales) add(s.accountId, this.saleRevenue(s));
+    for (const s of data.sales) {
+      if (s.paidLater) for (const p of s.payments || []) add(p.accountId, Number(p.amount) || 0);
+      else add(s.accountId, this.saleRevenue(s));
+    }
     for (const e of data.expenses) add(e.accountId, -(Number(e.amount) || 0));
     for (const t of data.transfers) {
       if (t.type === "adjust") add(t.accountId, Number(t.amount) || 0);
@@ -212,9 +234,10 @@ const Calc = {
     const incoming = data.orders.filter((o) => !o.receivedDate);
     const onTheWayValue = this.sum(incoming, (o) => this.orderTotal(o));
     const onTheWayUnits = this.sum(incoming, (o) => Number(o.qty) || 0);
+    const owedTotal = this.sum(data.sales, (s) => this.saleOwed(s));
     return {
-      inv, balances, cashTotal, stockValue, stockUnits, onTheWayValue, onTheWayUnits,
-      capital: cashTotal + stockValue, // stock on the way is not counted
+      inv, balances, cashTotal, stockValue, stockUnits, onTheWayValue, onTheWayUnits, owedTotal,
+      capital: cashTotal + stockValue + owedTotal, // stock on the way is not counted
     };
   },
 

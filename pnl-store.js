@@ -18,7 +18,10 @@ function pnlEmptyData() {
     products: [],   // { id, name, notes, tiers: [{ min (from qty), price (per unit) }] sorted by min }
     accounts: [{ id: CASH_ID, name: "Cash", opening: 0 }, { id: BANK_ID, name: "Bank", opening: 0 }], // { id, name, opening }
     orders: [],     // { id, productId, supplier, qty, total (whole order), orderDate, expectedDate, accountId, notes, receivedDate?, receivedQty? }
-    sales: [],      // { id, productId, qty, unitPrice, total? (when entered as a lot total), date, accountId, buyer }
+    // sale: { id, productId, qty, unitPrice, total? (when entered as a lot total), date, accountId, buyer,
+    //   paidLater? true, dueDate?, payments?: [{ id, amount, date, accountId }] }
+    // A paid-later sale's money only reaches accounts through its payments (accountId is unused).
+    sales: [],
     stockAdjustments: [], // "Set stock": { id, productId, date, qty (+/− units), unitCost (for added units), note }
     expenses: [],   // { id, date, amount, category, description, accountId, productId, recurring: none|weekly|monthly, recurCount?, fromRecurringId? }
     // transfer: { id, type:"transfer", fromId, toId, amount, date, note }  (Cash → Bank = a cash deposit)

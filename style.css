@@ -407,6 +407,11 @@ td.actions { width: 1%; white-space: nowrap; }
 .chart-detail { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border); }
 .chart-detail .preview { margin-top: 6px; }
 
+/* Tick box (e.g. "Paid later" on the sale form) */
+.check { display: flex; align-items: center; gap: 10px; font-size: 15px; cursor: pointer; }
+.check input { width: 18px; height: 18px; margin: 0; accent-color: var(--accent); }
+[data-later-fields][hidden], [data-account-wrap][hidden] { display: none; }
+
 /* Price tiers: rows in the product form, lines in the Products table */
 .tier-rows { display: flex; flex-direction: column; gap: 8px; }
 .tier-row { display: grid; grid-template-columns: 1fr 1fr auto; gap: 8px; align-items: end; }
