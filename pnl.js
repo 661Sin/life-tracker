@@ -195,7 +195,7 @@
           ...Calc.TIERS.map((t) => priceCell(t.key)),
           cost === null ? `<span class="muted">Not known yet</span>` : money(cost),
           st && st.qty ? String(st.qty) : "0",
-          rowActions([["Edit", "edit-product", p.id], ["Delete", "delete-product", p.id, "btn-ghost danger"]]),
+          rowActions([["Set stock", "set-stock", p.id], ["Edit", "edit-product", p.id], ["Delete", "delete-product", p.id, "btn-ghost danger"]]),
         ],
       };
     });
@@ -269,21 +269,39 @@
       .sort((a, b) => byName(a.p, b.p));
     const rows = items.map(({ p, st }) => ({
       cells: [
-        `<b>${esc(p.name)}</b>${muted(`From ${plural(st.batches, "order")}`)}`,
+        `<b>${esc(p.name)}</b>${muted(st.batches ? `From ${plural(st.batches, "order")}` : "Set manually")}`,
         st.qty < 0 ? `<span class="neg">${st.qty}</span>` : String(st.qty),
         money(st.avgCost),
         money(st.value),
-        st.qty > 0 ? rowActions([["Record sale", "sell-product", p.id, "btn-primary"]]) : "",
+        rowActions([
+          ...(st.qty > 0 ? [["Record sale", "sell-product", p.id, "btn-primary"]] : []),
+          ["Set stock", "set-stock", p.id],
+        ]),
       ],
     }));
-    return sectionHead("In hand", btn("Record sale", "add-sale", "", "btn-primary")) +
+
+    const adjustments = (data.stockAdjustments || []).slice().sort((a, b) => (a.date < b.date ? 1 : -1));
+    const adjRows = adjustments.map((a) => ({
+      cells: [
+        fmtDate(a.date),
+        `<b>${esc(productName(a.productId))}</b>${muted(esc(a.note))}`,
+        `<span class="${tone(a.qty)}">${a.qty > 0 ? "+" : ""}${a.qty}</span>`,
+        a.qty > 0 ? money(a.unitCost) : `<span class="muted">Avg cost</span>`,
+        rowActions([["Edit", "edit-stock-adj", a.id], ["Delete", "delete-stock-adj", a.id, "btn-ghost danger"]]),
+      ],
+    }));
+
+    return sectionHead("In hand", btn("Set stock", "set-stock") + btn("Record sale", "add-sale", "", "btn-primary")) +
       `<div class="stats">
         ${stat("Units in stock", String(snap.stockUnits))}
         ${stat("Inventory value", money(snap.stockValue))}
       </div>` +
       table([{ label: "Product" }, { label: "Qty on hand", num: true }, { label: "Avg landed cost/unit", num: true }, { label: "Stock value", num: true }, { label: "" }],
-        rows, "No stock in hand. Orders appear here once you mark them as received.") +
-      `<p class="muted small">Stock of the same product from several orders is combined at a weighted average cost.</p>`;
+        rows, "No stock in hand. Received orders appear here, or use “Set stock” to enter stock you already have.") +
+      `<p class="muted small">Stock of the same product from several orders is combined at a weighted average cost.</p>` +
+      (adjustments.length ? `<details class="history"><summary>Stock adjustments (${adjustments.length})</summary>${table(
+        [{ label: "Date" }, { label: "Product" }, { label: "Units", num: true }, { label: "Cost/unit", num: true }, { label: "" }],
+        adjRows, "")}</details>` : "");
   };
 
   // ---------- Sales ----------
@@ -702,6 +720,78 @@
     });
   }
 
+  // ---------- Set stock (count what you actually have) ----------
+  // Logs a stock adjustment for the difference between your count and the
+  // tracker. Added units need a cost per unit; removed units leave at the
+  // average cost. No money moves between accounts.
+  function setStockForm(presetProductId) {
+    if (!Store.data.products.length) return needProducts();
+    const snap = Calc.snapshot(Store.data);
+    const stockOf = (pid) => (snap.inv.byProduct[pid] ? snap.inv.byProduct[pid].qty : 0);
+    const costOf = (pid) => {
+      const c = Calc.currentUnitCost(Store.data, snap, pid);
+      return c === null ? "" : Calc.round2(c);
+    };
+    const options = [["", "Choose a product…"], ...Store.data.products.slice().sort(byName).map((p) => [p.id, `${p.name} (${stockOf(p.id)} in stock)`])];
+    const form = openForm("Set stock", `
+      <p class="muted">Enter how many units you actually have. The difference from the tracker is logged as a stock adjustment, e.g. for stock you had before you started tracking, or after a recount.</p>
+      ${field("Product", select("productId", options, presetProductId || "", "required"))}
+      ${row(field("Units you have", qtyInput("count", "", "required", 0)), field("Date", dateInput("date", Calc.today(), "required")))}
+      <div data-cost-row hidden>${field("Cost per unit (for the added units)", moneyInput("unitCost", costOf(presetProductId)), "What each unit cost you. Used for stock value and profit.")}</div>
+      ${field("Note (optional)", textInput("note", "", 'placeholder="e.g. Opening stock, recount"'))}
+      <div class="preview" data-preview></div>`,
+    (v) => {
+      if (!v.productId) return "Choose a product.";
+      const count = num(v.count);
+      if (v.count === "" || !Number.isInteger(count) || count < 0) return "Units must be a whole number, 0 or more.";
+      const change = count - stockOf(v.productId);
+      if (change === 0) return "That matches the tracker already, so nothing needs adjusting.";
+      if (change > 0 && v.unitCost === "") return "Enter the cost per unit for the added units.";
+      const item = { id: Store.uid(), productId: v.productId, date: v.date, qty: change, unitCost: change > 0 ? num(v.unitCost) : null, note: v.note };
+      return Store.commit((d) => d.stockAdjustments.push(item));
+    }, { submitLabel: "Save stock" });
+
+    const costRow = form.querySelector("[data-cost-row]");
+    const costInput = form.querySelector("[name=unitCost]");
+    const preview = form.querySelector("[data-preview]");
+    form.addEventListener("change", (e) => {
+      if (e.target.name === "productId") costInput.value = costOf(e.target.value); // suggest the current cost
+    });
+    const update = () => {
+      const v = formValues(form);
+      if (!v.productId || v.count === "") { preview.innerHTML = ""; costRow.hidden = true; return; }
+      const change = num(v.count) - stockOf(v.productId);
+      costRow.hidden = !(change > 0);
+      costInput.required = change > 0;
+      preview.innerHTML = `<span>In tracker <b>${stockOf(v.productId)}</b></span>
+        <span>Change <b class="${tone(change)}">${change > 0 ? "+" : ""}${change} units</b></span>`;
+    };
+    form.addEventListener("input", update);
+    update();
+  }
+
+  // Edit an existing stock adjustment directly (+/− units)
+  function stockAdjForm(id) {
+    const a = Store.get("stockAdjustments", id);
+    const form = openForm("Edit stock adjustment", `
+      ${field("Product", select("productId", productOptions(), a.productId))}
+      ${row(field("Units (+ added / − removed)", `<input name="qty" type="number" step="1" inputmode="numeric" required value="${a.qty}">`),
+            field("Date", dateInput("date", a.date, "required")))}
+      <div data-cost-row>${field("Cost per unit (for added units)", moneyInput("unitCost", a.unitCost))}</div>
+      ${field("Note (optional)", textInput("note", a.note))}`,
+    (v) => {
+      const q = num(v.qty);
+      if (!Number.isInteger(q) || q === 0) return "Units must be a whole number that isn't 0.";
+      if (q > 0 && v.unitCost === "") return "Enter the cost per unit for the added units.";
+      const item = { ...a, productId: v.productId, date: v.date, qty: q, unitCost: q > 0 ? num(v.unitCost) : null, note: v.note };
+      return Store.commit((d) => upsertIn(d.stockAdjustments, item));
+    });
+    const costRow = form.querySelector("[data-cost-row]");
+    const update = () => { costRow.hidden = !(num(formValues(form).qty) > 0); };
+    form.addEventListener("input", update);
+    update();
+  }
+
   // ================= Actions (buttons with data-action) =================
   function confirmDelete(what, list, id) {
     if (!confirm(`Delete this ${what}? This can't be undone.`)) return;
@@ -713,8 +803,9 @@
     "edit-product": productForm,
     "delete-product": (id) => {
       const d = Store.data;
-      const uses = d.orders.filter((x) => x.productId === id).length + d.sales.filter((x) => x.productId === id).length;
-      if (uses) return alert(`This product is used by ${plural(uses, "order/sale")}. Delete those first.`);
+      const uses = d.orders.filter((x) => x.productId === id).length + d.sales.filter((x) => x.productId === id).length +
+        (d.stockAdjustments || []).filter((x) => x.productId === id).length;
+      if (uses) return alert(`This product is used by ${plural(uses, "order, sale or stock adjustment")}. Delete those first.`);
       const linked = d.expenses.filter((x) => x.productId === id).length;
       if (!confirm(`Delete "${productName(id)}"?${linked ? ` ${plural(linked, "linked expense")} will be kept, but unlinked.` : ""} This can't be undone.`)) return;
       report(Store.commit((dd) => {
@@ -754,6 +845,9 @@
       confirmDelete("account", "accounts", id);
     },
     "cash-count": cashCountForm,
+    "set-stock": (id) => setStockForm(id),
+    "edit-stock-adj": stockAdjForm,
+    "delete-stock-adj": (id) => confirmDelete("stock adjustment", "stockAdjustments", id),
     "add-transfer": () => transferForm(),
     "add-adjust": () => adjustForm(),
     "edit-transfer": (id) => (Store.get("transfers", id).type === "adjust" ? adjustForm(id) : transferForm(id)),

@@ -81,19 +81,26 @@ const Calc = {
   // Replays every receipt and sale in date order, per product:
   //  - a receipt adds its units and their full cost to the pool
   //  - a sale takes units out at the pool's current average cost per unit
+  //  - a stock adjustment ("Set stock") adds units at the cost you enter,
+  //    or removes units at the current average cost (no money moves)
   // Returns stock per product, the cost of goods for every sale, and any
   // product whose stock would drop below zero (used to block impossible entries).
   inventory(data) {
     const events = [];
     for (const o of data.orders) {
       if (o.receivedDate) {
-        events.push({ date: o.receivedDate, order: 0, productId: o.productId, qty: Number(o.receivedQty) || 0, cost: this.orderTotal(o) });
+        events.push({ date: o.receivedDate, order: 0, productId: o.productId, qty: Number(o.receivedQty) || 0, cost: this.orderTotal(o), fromOrder: true });
       }
+    }
+    for (const a of data.stockAdjustments || []) {
+      const q = Number(a.qty) || 0;
+      if (q > 0) events.push({ date: a.date, order: 0, productId: a.productId, qty: q, cost: q * (Number(a.unitCost) || 0) });
+      else if (q < 0) events.push({ date: a.date, order: 1, productId: a.productId, qty: -q });
     }
     for (const s of data.sales) {
       events.push({ date: s.date, order: 1, productId: s.productId, qty: Number(s.qty) || 0, saleId: s.id });
     }
-    // Same day: receipts count before sales
+    // Same day: units coming in count before units going out
     events.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : a.order - b.order));
 
     const pools = {};
@@ -104,11 +111,11 @@ const Calc = {
       if (e.order === 0) {
         pool.qty += e.qty;
         pool.value += e.cost;
-        pool.batches += 1;
+        if (e.fromOrder) pool.batches += 1;
         if (pool.qty > 0) pool.lastAvg = pool.value / pool.qty;
       } else {
         const avg = pool.qty > 0 ? pool.value / pool.qty : pool.lastAvg;
-        saleCogs[e.saleId] = avg * e.qty;
+        if (e.saleId) saleCogs[e.saleId] = avg * e.qty;
         pool.qty -= e.qty;
         pool.value -= avg * e.qty;
         if (pool.qty <= 0) pool.value = 0;
