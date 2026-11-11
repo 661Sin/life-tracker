@@ -172,7 +172,7 @@ const Calc = {
     const onTheWayUnits = this.sum(incoming, (o) => Number(o.qty) || 0);
     return {
       inv, balances, cashTotal, stockValue, stockUnits, onTheWayValue, onTheWayUnits,
-      capital: cashTotal + stockValue + onTheWayValue,
+      capital: cashTotal + stockValue, // stock on the way is not counted
     };
   },
 

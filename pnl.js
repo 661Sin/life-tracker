@@ -86,6 +86,11 @@
     `<select name="${name}" ${extra}>${options.map(([v, t]) => `<option value="${esc(v)}"${v === selected ? " selected" : ""}>${esc(t)}</option>`).join("")}</select>`;
   const productOptions = (blank) => [...(blank ? [["", blank]] : []), ...Store.data.products.slice().sort(byName).map((p) => [p.id, p.name])];
   const accountOptions = () => Store.data.accounts.map((a) => [a.id, a.name]);
+  // With only the Cash account (the normal case) there's nothing to choose,
+  // so the "Paid from / into" picker is hidden and everything goes to Cash.
+  const accountField = (label, value) => Store.data.accounts.length > 1
+    ? field(label, select("accountId", accountOptions(), value))
+    : `<input type="hidden" name="accountId" value="${esc(value || CASH_ID)}">`;
 
   // Opens a form in the shared modal. onSubmit(values, form) returns an error
   // message to show, or nothing on success (then the modal closes and the page redraws).
@@ -152,15 +157,14 @@
       stat(label, money(mVal), `All time: <span class="${colour ? tone(allVal) : ""}">${money(allVal)}</span>`, colour ? tone(mVal) : "");
 
     return `
-      ${!data.products.length ? `<div class="card notice">Start by adding your products in <a href="#pnl/products">Products</a>, and your starting balances in <a href="#pnl/accounts">Accounts</a>.</div>` : ""}
+      ${!data.products.length ? `<div class="card notice">Start by adding your products in <a href="#pnl/products">Products</a>, and your starting cash in <a href="#pnl/accounts">Accounts</a> (Add money).</div>` : ""}
       ${overdue ? `<a class="card notice warn" href="#pnl/orders">${plural(overdue, "order")} overdue: check On the way</a>` : ""}
       <div class="card capital">
         <div class="stat-label">Total capital</div>
         <div class="capital-value">${money(snap.capital)}</div>
         <div class="capital-parts">
-          <div><span class="muted">Cash in accounts</span><b>${money(snap.cashTotal)}</b></div>
+          <div><span class="muted">Cash</span><b>${money(snap.cashTotal)}</b></div>
           <div><span class="muted">Stock in hand</span><b>${money(snap.stockValue)}</b></div>
-          <div><span class="muted">Stock on the way</span><b>${money(snap.onTheWayValue)}</b></div>
         </div>
       </div>
       <h3 class="group-title">${fmtMonth(month)}</h3>
@@ -387,37 +391,31 @@
 
   // ---------- Accounts ----------
   PAGES.accounts = (data, snap) => {
-    const cards = data.accounts.map((a) => `
-      <div class="card stat">
-        <div class="stat-label">${esc(a.name)}${a.id === CASH_ID ? " " + badge("Default") : ""}</div>
-        <div class="stat-value ${snap.balances[a.id] < 0 ? "neg" : ""}">${money(snap.balances[a.id])}</div>
-        <div class="stat-sub">Starting balance ${money(a.opening)}</div>
-        ${rowActions([
-          ...(a.id === CASH_ID ? [["Cash count", "cash-count", a.id]] : []),
-          ["Edit", "edit-account", a.id],
-          ...(a.id === CASH_ID ? [] : [["Delete", "delete-account", a.id, "btn-ghost danger"]]),
-        ])}
-      </div>`).join("");
-
+    // Money added or spent by hand (stored as adjustments), plus any older
+    // transfers / cash counts, newest first
     const rows = data.transfers.slice().sort((a, b) => (a.date < b.date ? 1 : -1)).map((t) => {
       const isAdjust = t.type === "adjust";
+      const kind = !isAdjust ? "Transfer" : t.cashCount ? "Cash count" : t.amount < 0 ? "Spent" : "Added";
       return {
         cells: [
           fmtDate(t.date),
-          isAdjust ? (t.cashCount ? "Cash count" : "Adjustment") : "Transfer",
-          (isAdjust ? esc(accountName(t.accountId)) : `${esc(accountName(t.fromId))} → ${esc(accountName(t.toId))}`) + muted(esc(t.note)),
+          kind,
+          (isAdjust ? esc(t.note) || muted("No note") : `${esc(accountName(t.fromId))} → ${esc(accountName(t.toId))}` + muted(esc(t.note))),
           isAdjust ? `<span class="${tone(t.amount)}">${signed(t.amount)}</span>` : money(t.amount),
           rowActions([["Edit", "edit-transfer", t.id], ["Delete", "delete-transfer", t.id, "btn-ghost danger"]]),
         ],
       };
     });
 
-    return sectionHead("Accounts", btn("Transfer", "add-transfer") + btn("Adjustment", "add-adjust") + btn("Add account", "add-account", "", "btn-primary")) +
-      `<div class="stats">${cards}</div>
-      <div class="card total-line"><span>Total in accounts</span><b class="${tone(snap.cashTotal)}">${money(snap.cashTotal)}</b></div>
-      <h3 class="group-title">Transfers and adjustments</h3>` +
-      table([{ label: "Date" }, { label: "Type" }, { label: "Details" }, { label: "Amount", num: true }, { label: "" }],
-        rows, "No transfers or adjustments yet.") +
+    return sectionHead("Accounts", btn("Spend money", "spend-money") + btn("Add money", "add-money", "", "btn-primary")) +
+      `<div class="card capital">
+        <div class="stat-label">Cash balance</div>
+        <div class="capital-value ${snap.cashTotal < 0 ? "neg" : ""}">${money(snap.cashTotal)}</div>
+        <div class="muted">Sales add to this, orders and expenses take from it. Use Add / Spend money for anything else.</div>
+      </div>
+      <h3 class="group-title">Money added and spent</h3>` +
+      table([{ label: "Date" }, { label: "Type" }, { label: "Note" }, { label: "Amount", num: true }, { label: "" }],
+        rows, "Nothing added or spent by hand yet.") +
       `<h3 class="group-title">Backup</h3>
       <div class="card backup">
         <p class="muted">Your data is saved in this browser only. Export a backup file now and then, and import it to restore your data or move it to another device.</p>
@@ -468,7 +466,7 @@
             field("Expected arrival", dateInput("expectedDate", o.expectedDate)))}
       ${received ? row(field("Received date", dateInput("receivedDate", o.receivedDate, "required")),
             field("Quantity received", qtyInput("receivedQty", o.receivedQty, "required", 0))) : ""}
-      ${field("Paid from", select("accountId", accountOptions(), o.accountId))}
+      ${accountField("Paid from", o.accountId)}
       ${field("Notes (optional)", textArea("notes", o.notes))}
       <div class="preview" data-preview></div>`,
     (v) => {
@@ -550,7 +548,7 @@
       ${row(field("Quantity sold", qtyInput("qty", s.qty, "required")),
             field("Price per unit", moneyInput("unitPrice", s.unitPrice, "required"), `<span data-tier-hint></span> <button type="button" class="link" data-use-tier>Use tier price</button>`))}
       ${row(field("Date", dateInput("date", s.date, "required")),
-            field("Paid into", select("accountId", accountOptions(), s.accountId)))}
+            accountField("Paid into", s.accountId))}
       ${field("Buyer / location (optional)", textInput("buyer", s.buyer))}
       <div class="preview" data-preview></div>`,
     (v) => {
@@ -605,7 +603,7 @@
       ${row(field("Date", dateInput("date", e.date, "required")),
             field("Amount", moneyInput("amount", e.amount, "required")))}
       ${row(field("Category", select("category", cats.map((c) => [c, c]), e.category)),
-            field("Paid from", select("accountId", accountOptions(), e.accountId)))}
+            accountField("Paid from", e.accountId))}
       ${field("Description", textInput("description", e.description))}
       ${field("For product (optional)", select("productId", productOptions("Not linked to a product"), e.productId || ""), "Linked expenses count against that product's profit.")}
       ${canRepeat ? field("Repeats", select("recurring", [["none", "Doesn't repeat"], ["weekly", "Every week"], ["monthly", "Every month"]], e.recurring || "none"),
@@ -697,6 +695,23 @@
       const item = { ...t, id: t.id || Store.uid(), type: "adjust", accountId: v.accountId, amount: num(v.amount), date: v.date, note: v.note };
       return Store.commit((d) => upsertIn(d.transfers, item));
     });
+  }
+
+  // Add money to / spend money from Cash. Saved as an adjustment:
+  // positive amount = added, negative = spent. The user always types a positive number.
+  function moneyForm(kind, id) {
+    const t = id ? Store.get("transfers", id) : { accountId: CASH_ID, amount: "", date: Calc.today(), note: "" };
+    const spend = id ? t.amount < 0 : kind === "spend";
+    openForm(spend ? (id ? "Edit money spent" : "Spend money") : (id ? "Edit money added" : "Add money"), `
+      ${row(field("Amount", moneyInput("amount", t.amount === "" ? "" : Math.abs(t.amount), "required")),
+            field("Date", dateInput("date", t.date, "required")))}
+      ${field("Note (optional)", textInput("note", t.note, `placeholder="${spend ? "e.g. Took out for personal use" : "e.g. Starting cash, Put in from savings"}"`))}`,
+    (v) => {
+      if (!(num(v.amount) > 0)) return "Enter an amount above 0.";
+      const amount = spend ? -num(v.amount) : num(v.amount);
+      const item = { ...t, id: t.id || Store.uid(), type: "adjust", accountId: t.accountId || CASH_ID, amount, date: v.date, note: v.note };
+      return Store.commit((d) => upsertIn(d.transfers, item));
+    }, { submitLabel: spend ? "Spend" : "Add" });
   }
 
   function cashCountForm() {
@@ -850,7 +865,13 @@
     "delete-stock-adj": (id) => confirmDelete("stock adjustment", "stockAdjustments", id),
     "add-transfer": () => transferForm(),
     "add-adjust": () => adjustForm(),
-    "edit-transfer": (id) => (Store.get("transfers", id).type === "adjust" ? adjustForm(id) : transferForm(id)),
+    "add-money": () => moneyForm("add"),
+    "spend-money": () => moneyForm("spend"),
+    "edit-transfer": (id) => {
+      const t = Store.get("transfers", id);
+      if (t.type !== "adjust") return transferForm(id);
+      return t.cashCount ? adjustForm(id) : moneyForm(null, id);
+    },
     "delete-transfer": (id) => confirmDelete("entry", "transfers", id),
     export: () => {
       const blob = new Blob([Store.exportText()], { type: "application/json" });
