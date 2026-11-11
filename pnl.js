@@ -33,6 +33,7 @@
   const fmtDate = (s) => (s ? DATE_FMT.format(Calc.toUTC(s)) : "—");
   const fmtMonth = (m) => MONTH_FMT.format(Calc.toUTC(m + "-01"));
   const byName = (a, b) => a.name.localeCompare(b.name);
+  const days = (n) => (n === null || n === undefined ? "—" : plural(Math.round(n), "day"));
 
   const productName = (id) => { const p = Store.get("products", id); return p ? p.name : "(deleted product)"; };
   const accountName = (id) => { const a = Store.get("accounts", id); return a ? a.name : "(deleted account)"; };
@@ -145,6 +146,7 @@
     const best = sold.slice().sort((a, b) => b.unitsSold - a.unitsSold).slice(0, 5);
     const profitable = sold.slice().sort((a, b) => b.net - a.net).slice(0, 5);
     const overdue = data.orders.filter((o) => !o.receivedDate && o.expectedDate && o.expectedDate < today).length;
+    const slow = Calc.slowestSellers(Calc.sellTimes(data, today), 5).map((x) => ({ ...x, name: productName(x.productId) }));
 
     const rankList = (items, valueOf, labelOf, emptyText) => {
       if (!items.length) return `<p class="muted">${emptyText}</p>`;
@@ -186,6 +188,10 @@
         <div class="card"><h3>Best sellers</h3>${rankList(best, (p) => p.unitsSold, (p) => plural(p.unitsSold, "unit"), "No sales yet.")}</div>
         <div class="card"><h3>Most profitable</h3>${rankList(profitable, (p) => p.net, (p) => `<span class="${tone(p.net)}">${money(p.net)}</span>`, "No sales yet.")}
           ${profitable.length ? `<p class="muted small">Net profit: sales − cost of goods − expenses linked to the product.</p>` : ""}</div>
+        <div class="card"><h3>Slowest sellers</h3>${rankList(slow, (x) => x.slowness,
+          (x) => [x.avgDays === null ? "no sales" : `${Math.round(x.avgDays)}d avg`, x.oldestDays === null ? "" : `${x.oldestDays}d oldest`].filter(Boolean).join(" · "),
+          "No stock or sales yet.")}
+          ${slow.length ? `<p class="muted small">d = days. Ranked by average days from arrival to sale, or the oldest unsold stock if that's longer.</p>` : ""}</div>
       </div>`;
   };
 
@@ -285,23 +291,28 @@
 
   // ---------- Products ----------
   PAGES.products = (data, snap) => {
+    const times = Calc.sellTimes(data, Calc.today());
     const rows = data.products.slice().sort(byName).map((p) => {
       const cost = Calc.currentUnitCost(data, snap, p.id);
       const st = snap.inv.byProduct[p.id];
+      const t = times[p.id];
       return {
         cells: [
           `<b>${esc(p.name)}</b>${muted(esc(p.notes))}`,
           tierList(p, cost),
           cost === null ? `<span class="muted">Not known yet</span>` : money(cost),
           st && st.qty ? String(st.qty) : "0",
+          (t.avgDays === null ? `<span class="muted">No sales yet</span>` : days(t.avgDays) + " avg") +
+            (t.oldestDays !== null ? muted(`Oldest unsold: ${days(t.oldestDays)}`) : ""),
           rowActions([["Set stock", "set-stock", p.id], ["Edit", "edit-product", p.id], ["Delete", "delete-product", p.id, "btn-ghost danger"]]),
         ],
       };
     });
     return sectionHead("Products", btn("Add product", "add-product", "", "btn-primary")) +
-      table([{ label: "Product" }, { label: "Price tiers (per unit · margin)" }, { label: "Landed cost/unit", num: true }, { label: "In stock", num: true }, { label: "" }],
+      table([{ label: "Product" }, { label: "Price tiers (per unit · margin)" }, { label: "Landed cost/unit", num: true }, { label: "In stock", num: true }, { label: "Days to sell", num: true }, { label: "" }],
         rows, "No products yet. Add the things you sell, with their prices per unit at each quantity tier.") +
-      `<p class="muted small">Margin = tier price − current landed cost per unit (average of stock in hand, or the latest incoming order). Margin % = margin ÷ tier price.</p>`;
+      `<p class="muted small">Margin = tier price − current landed cost per unit (average of stock in hand, or the latest incoming order). Margin % = margin ÷ tier price.</p>` +
+      `<p class="muted small">Days to sell = average days from stock arriving to it selling (oldest units assumed to sell first).</p>`;
   };
 
   // A product's tiers, one per line: "10–49  $40.00  +$12.00 (30%)"
@@ -374,6 +385,8 @@
 
   // ---------- In hand ----------
   PAGES.stock = (data, snap) => {
+    const times = Calc.sellTimes(data, Calc.today());
+    const oldest = Calc.oldestStock(times);
     const items = data.products
       .map((p) => ({ p, st: snap.inv.byProduct[p.id] }))
       .filter((x) => x.st && x.st.qty !== 0)
@@ -384,6 +397,8 @@
         st.qty < 0 ? `<span class="neg">${st.qty}</span>` : String(st.qty),
         money(st.avgCost),
         money(st.value),
+        times[p.id].avgDays === null ? `<span class="muted">No sales yet</span>` : days(times[p.id].avgDays),
+        times[p.id].oldestDays === null ? "—" : days(times[p.id].oldestDays) + muted(`since ${fmtDate(times[p.id].oldestDate)}`),
         rowActions([
           ...(st.qty > 0 ? [["Record sale", "sell-product", p.id, "btn-primary"]] : []),
           ["Set stock", "set-stock", p.id],
@@ -406,10 +421,12 @@
       `<div class="stats">
         ${stat("Units in stock", String(snap.stockUnits))}
         ${stat("Inventory value", money(snap.stockValue))}
+        ${stat("Oldest unsold stock", oldest ? days(oldest.days) : "—", oldest ? esc(productName(oldest.productId)) : "")}
       </div>` +
-      table([{ label: "Product" }, { label: "Qty on hand", num: true }, { label: "Avg landed cost/unit", num: true }, { label: "Stock value", num: true }, { label: "" }],
+      table([{ label: "Product" }, { label: "Qty on hand", num: true }, { label: "Avg landed cost/unit", num: true }, { label: "Stock value", num: true },
+        { label: "Avg days to sell", num: true }, { label: "Oldest unsold", num: true }, { label: "" }],
         rows, "No stock in hand. Received orders appear here, or use “Set stock” to enter stock you already have.") +
-      `<p class="muted small">Stock of the same product from several orders is combined at a weighted average cost.</p>` +
+      `<p class="muted small">Stock of the same product from several orders is combined at a weighted average cost. Days to sell: from the date stock arrived (received or set) to the sale, oldest units first.</p>` +
       (adjustments.length ? `<details class="history"><summary>Stock adjustments (${adjustments.length})</summary>${table(
         [{ label: "Date" }, { label: "Product" }, { label: "Units", num: true }, { label: "Cost/unit", num: true }, { label: "" }],
         adjRows, "")}</details>` : "");

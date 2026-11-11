@@ -191,6 +191,77 @@ const Calc = {
     return { byProduct, saleCogs, shortages };
   },
 
+  // ---- Days to sell ----
+  // How long stock sits before it sells. Separate from the cost maths above:
+  // for timing, units are assumed to sell oldest first (first in, first out).
+  // Arrivals = received orders (received date) and stock added with Set stock
+  // (adjustment date). Each unit sold counts the days from its arrival to the
+  // sale; units removed by Set stock just leave without counting.
+  // Returns per product: { avgDays (null if nothing sold yet), unitsTimed,
+  //   unsold, oldestDate, oldestDays (null if none in stock) }
+  sellTimes(data, today) {
+    const events = [];
+    for (const o of data.orders) {
+      if (o.receivedDate) events.push({ date: o.receivedDate, order: 0, productId: o.productId, qty: Number(o.receivedQty) || 0 });
+    }
+    for (const a of data.stockAdjustments || []) {
+      const q = Number(a.qty) || 0;
+      if (q > 0) events.push({ date: a.date, order: 0, productId: a.productId, qty: q });
+      else if (q < 0) events.push({ date: a.date, order: 1, productId: a.productId, qty: -q });
+    }
+    for (const s of data.sales) events.push({ date: s.date, order: 1, productId: s.productId, qty: Number(s.qty) || 0, sale: true });
+    events.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : a.order - b.order));
+
+    const lots = {};   // productId → [{ date, qty }] oldest first
+    const timed = {};  // productId → { units, unitDays }
+    for (const e of events) {
+      const list = lots[e.productId] || (lots[e.productId] = []);
+      const t = timed[e.productId] || (timed[e.productId] = { units: 0, unitDays: 0 });
+      if (e.order === 0) { if (e.qty > 0) list.push({ date: e.date, qty: e.qty }); continue; }
+      let left = e.qty;
+      while (left > 0 && list.length) {
+        const lot = list[0];
+        const take = Math.min(left, lot.qty);
+        if (e.sale) { t.units += take; t.unitDays += take * this.daysBetween(lot.date, e.date); }
+        lot.qty -= take;
+        left -= take;
+        if (lot.qty === 0) list.shift();
+      }
+    }
+    const out = {};
+    for (const p of data.products) {
+      const list = lots[p.id] || [];
+      const t = timed[p.id] || { units: 0, unitDays: 0 };
+      const oldestDate = list.length ? list[0].date : null;
+      out[p.id] = {
+        avgDays: t.units ? t.unitDays / t.units : null,
+        unitsTimed: t.units,
+        unsold: this.sum(list, (l) => l.qty),
+        oldestDate,
+        oldestDays: oldestDate ? Math.max(0, this.daysBetween(oldestDate, today)) : null,
+      };
+    }
+    return out;
+  },
+  // The product with the oldest unsold stock: { productId, days } or null
+  oldestStock(times) {
+    let best = null;
+    for (const id in times) {
+      const d = times[id].oldestDays;
+      if (d !== null && (!best || d > best.days)) best = { productId: id, days: d };
+    }
+    return best;
+  },
+  // Slowest sellers first. Ranked by the longer of: average days to sell, and
+  // the age of the oldest unsold stock (so stock that's stuck shows up too).
+  slowestSellers(times, n = 5) {
+    return Object.entries(times)
+      .map(([productId, t]) => ({ productId, ...t, slowness: Math.max(t.avgDays ?? 0, t.oldestDays ?? 0) }))
+      .filter((x) => x.avgDays !== null || x.oldestDays !== null)
+      .sort((a, b) => b.slowness - a.slowness)
+      .slice(0, n);
+  },
+
   // Current landed cost per unit for a product: the stock average if known,
   // otherwise the newest incoming order's landed cost, otherwise unknown (null).
   currentUnitCost(data, snap, productId) {
