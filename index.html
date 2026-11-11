@@ -7,10 +7,17 @@
   <!-- Inter font from Google Fonts (falls back to Segoe UI if offline) -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
+  <!-- Backdrop behind everything: dark gradient + slow-drifting colour blobs that the glass panels blur -->
+  <div class="backdrop" aria-hidden="true">
+    <span class="blob blob-1"></span>
+    <span class="blob blob-2"></span>
+    <span class="blob blob-3"></span>
+  </div>
+
   <!-- Side tabs (navigation): each slides out on hover; clicking switches section without reloading -->
   <nav class="side-tabs" aria-label="Sections">
     <a href="#pnl" class="tab" data-tab="pnl">

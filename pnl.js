@@ -1312,21 +1312,44 @@
   });
 
   // ================= Drawing =================
-  function render() {
+  // The sub-tab bar is drawn once and kept, so its bubble can slide between
+  // tabs; only the page below it is replaced. animate = slide the new page in
+  // (when switching sub-tab); other redraws (after an edit, resize) are instant.
+  const viewIndex = (key) => VIEWS.findIndex(([k]) => k === key);
+  function render(animate = false) {
     const snap = Calc.snapshot(Store.data);
-    const nav = `<nav class="subnav" aria-label="PnL pages">${VIEWS.map(([key, label]) =>
-      `<a href="#pnl/${key}" class="subnav-link${key === view ? " active" : ""}">${label}</a>`).join("")}</nav>`;
-    root.innerHTML = nav + `<div class="pnl-page">${PAGES[view](Store.data, snap)}</div>`;
+    let nav = root.querySelector(".subnav");
+    if (!nav) {
+      root.innerHTML = `<nav class="subnav" aria-label="PnL pages">${VIEWS.map(([key, label]) =>
+        `<a href="#pnl/${key}" class="subnav-link" data-view="${key}">${label}</a>`).join("")}</nav><div class="pnl-pages"></div>`;
+      nav = root.querySelector(".subnav");
+    }
+    nav.querySelectorAll(".subnav-link").forEach((a) => a.classList.toggle("active", a.dataset.view === view));
+
+    const holder = root.querySelector(".pnl-pages");
+    const old = holder.querySelector(".pnl-page:not(.leaving)");
+    const page = document.createElement("div");
+    page.className = "pnl-page";
+    page.dataset.view = view;
+    page.innerHTML = PAGES[view](Store.data, snap);
+    holder.insertBefore(page, old); // new page first, so lookups find it rather than the fading one
+    const dir = animate && old ? Math.sign(viewIndex(view) - viewIndex(old.dataset.view)) : 0;
+    if (old) slidePage(old, page, dir, () => old.remove());
+
+    moveBubble(nav);
+    scrollActiveIntoView(nav);
   }
 
+  let onPnl = false; // was the PnL tab showing before this hash change?
   function readHash() {
     const [tab, sub] = location.hash.replace("#", "").split("/");
-    if (tab && tab !== "pnl") return false;
+    onPnl = !tab || tab === "pnl";
+    if (!onPnl) return false;
     view = VIEWS.some(([k]) => k === sub) ? sub : "dashboard";
     return true;
   }
 
-  window.addEventListener("hashchange", () => { if (readHash()) render(); });
+  window.addEventListener("hashchange", () => { const was = onPnl; if (readHash()) render(was); });
 
   // Day counts ("ordered 3 days ago", "overdue by 2 days") and repeating
   // expenses stay current if the page is left open past midnight.
