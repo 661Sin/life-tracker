@@ -233,6 +233,22 @@ const Calc = {
     };
   },
 
+  // "YYYY-MM" moved by k months (k can be negative)
+  addMonths(month, k) {
+    const [y, m] = month.split("-").map(Number);
+    const total = y * 12 + (m - 1) + k;
+    return `${Math.floor(total / 12)}-${String((total % 12) + 1).padStart(2, "0")}`;
+  },
+  // Profit figures for the `n` months ending with `endMonth`, oldest first (for the chart)
+  monthlyStats(data, snap, endMonth, n = 12) {
+    const out = [];
+    for (let k = n - 1; k >= 0; k--) {
+      const month = this.addMonths(endMonth, -k);
+      out.push({ month, ...this.periodStats(data, snap, month) });
+    }
+    return out;
+  },
+
   // Totals per category for a list of expenses, biggest first
   categoryTotals(expenses) {
     const totals = {};

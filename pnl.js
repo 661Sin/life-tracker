@@ -170,6 +170,7 @@
           <div><span class="muted">Stock in hand</span><b>${money(snap.stockValue)}</b></div>
         </div>
       </div>
+      ${profitChart(Calc.monthlyStats(data, snap, month, 12))}
       <h3 class="group-title">${fmtMonth(month)}</h3>
       <div class="stats">
         ${period("Revenue", m.revenue, all.revenue)}
@@ -184,6 +185,82 @@
           ${profitable.length ? `<p class="muted small">Net profit: sales − cost of goods − expenses linked to the product.</p>` : ""}</div>
       </div>`;
   };
+
+  // ---------- Monthly net profit chart (Dashboard) ----------
+  // Plain SVG bars around a zero line: green = profit, orange = loss.
+  // Hover (mouse) or tap (phone) a month to see its breakdown underneath.
+  const SHORT_MONTH = new Intl.DateTimeFormat("en-NZ", { month: "short", timeZone: "UTC" });
+  let chartMonths = [];   // the 12 months currently drawn
+  let chartPick = null;   // the month whose breakdown is shown
+
+  function profitChart(months) {
+    chartMonths = months;
+    if (!months.some((m) => m.month === chartPick)) chartPick = months[months.length - 1].month;
+    const width = Math.max(260, (root.clientWidth || 640) - 46); // card's inner width
+    const plotH = 160, labelH = 22, top = 18;
+    const max = Math.max(0, ...months.map((m) => m.net));
+    const min = Math.min(0, ...months.map((m) => m.net));
+    const range = max - min || 1;
+    const y = (v) => top + ((max - v) / range) * plotH;  // value → pixel height
+    const zeroY = y(0);
+    const col = width / months.length;
+    const barW = Math.max(6, Math.min(28, col - 6));
+    const r = Math.min(4, barW / 2);
+    // Bar with rounded corners on the end away from the zero line
+    const barPath = (x, v) => {
+      const h = Math.abs(y(v) - zeroY);
+      if (h < 0.5) return "";
+      const rr = Math.min(r, h);
+      if (v > 0) {
+        const t = zeroY - h;
+        return `M${x},${zeroY}V${t + rr}Q${x},${t} ${x + rr},${t}H${x + barW - rr}Q${x + barW},${t} ${x + barW},${t + rr}V${zeroY}Z`;
+      }
+      const b = zeroY + h;
+      return `M${x},${zeroY}V${b - rr}Q${x},${b} ${x + rr},${b}H${x + barW - rr}Q${x + barW},${b} ${x + barW},${b - rr}V${zeroY}Z`;
+    };
+    const narrow = col < 30;
+    const cols = months.map((m, i) => {
+      const x = i * col + (col - barW) / 2;
+      const label = SHORT_MONTH.format(Calc.toUTC(m.month + "-01"));
+      return `<g class="chart-col${m.month === chartPick ? " sel" : ""}" data-month="${m.month}">
+          <rect class="chart-hit" x="${i * col}" y="0" width="${col}" height="${top + plotH + labelH}"></rect>
+          <path class="${m.net < 0 ? "chart-neg" : "chart-pos"}" d="${barPath(x, m.net)}"></path>
+          <text class="chart-label" x="${i * col + col / 2}" y="${top + plotH + 16}" text-anchor="middle">${narrow ? label[0] : label}</text>
+        </g>`;
+    }).join("");
+    const axis = (v) => `<text class="chart-label" x="0" y="${y(v) - 5}">${money(v)}</text>`;
+    return `
+      <div class="card chart-card">
+        <h3>Net profit by month</h3>
+        <svg class="chart" width="${width}" height="${top + plotH + labelH}" viewBox="0 0 ${width} ${top + plotH + labelH}"
+          role="img" aria-label="Bar chart of net profit for the last 12 months">
+          ${max > 0 ? axis(max) : ""}${min < 0 ? axis(min) : ""}
+          <line class="chart-zero" x1="0" x2="${width}" y1="${zeroY}" y2="${zeroY}"></line>
+          ${cols}
+        </svg>
+        <div class="chart-detail" data-chart-detail>${chartDetail()}</div>
+      </div>`;
+  }
+
+  function chartDetail() {
+    const m = chartMonths.find((x) => x.month === chartPick);
+    if (!m) return "";
+    return `<div class="stat-label">${fmtMonth(m.month)}</div>
+      <div class="preview">
+        <span>Revenue <b>${money(m.revenue)}</b></span>
+        <span>Cost of goods <b>${money(m.cogs)}</b></span>
+        <span>Expenses <b>${money(m.expenses)}</b></span>
+        <span>Net <b class="${tone(m.net)}">${money(m.net)}</b></span>
+      </div>`;
+  }
+
+  function pickChartMonth(month) {
+    if (!month || month === chartPick) return;
+    chartPick = month;
+    root.querySelectorAll(".chart-col").forEach((g) => g.classList.toggle("sel", g.dataset.month === month));
+    const box = root.querySelector("[data-chart-detail]");
+    if (box) box.innerHTML = chartDetail();
+  }
 
   // ---------- Products ----------
   PAGES.products = (data, snap) => {
@@ -1070,6 +1147,22 @@
   root.addEventListener("click", (e) => {
     const b = e.target.closest("[data-action]");
     if (b && ACTIONS[b.dataset.action]) ACTIONS[b.dataset.action](b.dataset.id);
+  });
+  // Chart: hover with a mouse, tap on a phone
+  root.addEventListener("mouseover", (e) => {
+    const g = e.target.closest && e.target.closest(".chart-col");
+    if (g) pickChartMonth(g.dataset.month);
+  });
+  root.addEventListener("click", (e) => {
+    const g = e.target.closest(".chart-col");
+    if (g) pickChartMonth(g.dataset.month);
+  });
+  // Redraw the chart at the new width when the window is resized
+  let resizeTimer = null;
+  window.addEventListener("resize", () => {
+    if (view !== "dashboard") return;
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(render, 150);
   });
   root.addEventListener("change", (e) => {
     if (e.target.dataset.filter) {

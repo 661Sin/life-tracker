@@ -393,6 +393,20 @@ td.actions { width: 1%; white-space: nowrap; }
 .preview.big { font-size: 16px; }
 .preview.big b { font-size: 18px; }
 
+/* Monthly net profit chart (Dashboard) */
+.chart-card { margin-bottom: 8px; }
+.chart { display: block; max-width: 100%; overflow: visible; }
+.chart-hit { fill: transparent; cursor: pointer; }
+.chart-pos { fill: var(--positive); }
+.chart-neg { fill: var(--accent); }
+.chart-col path { opacity: 0.55; transition: opacity 0.15s ease; }
+.chart-col.sel path { opacity: 1; }
+.chart-col.sel .chart-label { fill: var(--text); }
+.chart-zero { stroke: var(--border); stroke-width: 1; }
+.chart-label { fill: var(--text-muted); font-size: 11px; font-family: inherit; }
+.chart-detail { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border); }
+.chart-detail .preview { margin-top: 6px; }
+
 /* Price tiers: rows in the product form, lines in the Products table */
 .tier-rows { display: flex; flex-direction: column; gap: 8px; }
 .tier-row { display: grid; grid-template-columns: 1fr 1fr auto; gap: 8px; align-items: end; }
