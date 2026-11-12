@@ -91,7 +91,8 @@ const Sync = (function () {
     <div class="cloud-acct">
       <button type="button" class="cloud-avatar" data-cloud="menu" aria-haspopup="true" aria-expanded="false" aria-label="Account"></button>
       <div class="menu card cloud-menu" hidden>
-        <div class="cloud-email"></div>
+        <div class="cloud-who"><div class="cloud-name"></div><div class="cloud-email"></div></div>
+        <button type="button" class="menu-item" data-cloud="username">Change username…</button>
         <button type="button" class="menu-item" data-cloud="versions">Earlier versions…</button>
         <button type="button" class="menu-item" data-cloud="password">Change password…</button>
         <button type="button" class="menu-item" data-cloud="logout">Log out</button>
@@ -287,7 +288,9 @@ const Sync = (function () {
   async function localMediaIds() { return (await Media.all().catch(() => [])).map((r) => r.id); }
 
   async function firstLogin() {
-    const rows = (await sb.from("user_data").select("section, data, changed_at, updated_at")).data || [];
+    const { data, error } = await sb.from("user_data").select("section, data, changed_at, updated_at");
+    if (error) throw error; // never treat "couldn't ask" as "the account is empty"
+    const rows = data || [];
     const local = NAMES.filter(hasContent);
     const media = await localMediaIds();
     const hasLocal = local.length > 0 || media.length > 0;
@@ -345,7 +348,7 @@ const Sync = (function () {
   // ---------- Logged in / out ----------
   async function start(u) {
     if (user && user.id === u.id) return;
-    user = { id: u.id, email: u.email };
+    user = { id: u.id, email: u.email, name: nameOf(u) };
     ready = false;
     try {
       if (st.owner && st.owner !== user.id) {
@@ -361,15 +364,34 @@ const Sync = (function () {
       if (!st.owner) await firstLogin();
     } catch (e) {
       if (isNetworkError(e) && st.owner === user.id) { /* offline: carry on with this device's copy */ }
-      else { showAuth("login", "Couldn't reach your account. Check your internet and try again."); user = null; return; }
+      else {
+        console.warn("Log-in problem:", e);
+        showAuth("login", isNetworkError(e) ? "Couldn't reach your account. Check your internet and try again." : "Couldn't open your account. Try again in a moment.");
+        user = null;
+        return;
+      }
     }
     ready = true;
     if (!recovering) hideAuth();
     bar.hidden = false;
-    bar.querySelector(".cloud-avatar").textContent = (user.email || "?")[0].toUpperCase();
-    bar.querySelector(".cloud-email").textContent = user.email || "";
+    paintAccount();
+    if (welcome) { toast(`Welcome, ${welcome}`); welcome = ""; }
     setStatus(navigator.onLine ? "syncing" : "offline");
     syncNow();
+  }
+
+  // ---------- Username ----------
+  // Kept on the account itself (Supabase "user metadata"), so it follows the
+  // person to every device. Accounts made before usernames show the start of the email.
+  let welcome = ""; // set by a fresh sign-up: greeted once the app opens
+  const cleanName = (s) => String(s || "").replace(/\s+/g, " ").trim().slice(0, NAME_MAX);
+  const nameOf = (u) => cleanName(u && u.user_metadata && u.user_metadata.username) || String((u && u.email) || "").split("@")[0] || "Account";
+  function paintAccount() {
+    if (!user) return;
+    bar.querySelector(".cloud-avatar").textContent = (user.name || "?")[0].toUpperCase();
+    bar.querySelector(".cloud-avatar").setAttribute("aria-label", `Account: ${user.name}`);
+    bar.querySelector(".cloud-name").textContent = user.name;
+    bar.querySelector(".cloud-email").textContent = user.email || "";
   }
 
   // ---------- Log-in screen ----------
@@ -383,100 +405,146 @@ const Sync = (function () {
   const authCard = auth.querySelector(".auth-card");
   const EYE = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z"/><circle cx="12" cy="12" r="3"/></svg>`;
   const EYE_OFF = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 3l18 18M10.6 6a10 10 0 0 1 1.4-.1c6 0 9.5 6.1 9.5 6.1a17 17 0 0 1-3 3.6M6.4 7.1A17 17 0 0 0 2.5 12s3.5 6.5 9.5 6.5a9.6 9.6 0 0 0 4.4-1.1M9.9 9.9a3 3 0 0 0 4.2 4.2"/></svg>`;
-  const pwField = (name, label, auto) => `
+  const PW_MIN = 6, NAME_MIN = 2, NAME_MAX = 24;
+  const PW_HINT = `At least ${PW_MIN} characters`;
+  const pwField = (name, label, auto, hint = "") => `
     <label class="field"><span class="field-label">${label}</span>
-      <span class="auth-pw"><input name="${name}" type="password" autocomplete="${auto}" required minlength="6">
-      <button type="button" class="auth-eye" data-eye aria-label="Show password">${EYE}</button></span></label>`;
+      <span class="auth-pw"><input name="${name}" type="password" autocomplete="${auto}" required>
+      <button type="button" class="auth-eye" data-eye aria-label="Show password">${EYE}</button></span>
+      ${hint ? `<span class="field-hint">${hint}</span>` : ""}</label>`;
 
-  function showAuth(mode = "login", message = "", email = "") {
+  // What the person has typed so far, so switching Log in / Sign up / Forgot keeps it
+  const draft = { email: "", username: "" };
+  function remember() {
+    const f = authCard.querySelector("form");
+    if (!f) return;
+    if (f.email) draft.email = f.email.value.trim();
+    if (f.username) draft.username = cleanName(f.username.value);
+  }
+  const emailField = (auto) => `<label class="field"><span class="field-label">Email</span>
+      <input name="email" type="email" autocomplete="${auto}" inputmode="email" autocapitalize="none" spellcheck="false" required value="${esc(draft.email)}"></label>`;
+  const LOGO = `<img class="auth-logo" src="icons/icon-192.png" alt="">`;
+
+  // The card's current screen is kept in data-screen; links that switch screen use data-go.
+  // (They must be different names: the click handler below looks for data-go on the
+  // way up from whatever was tapped, and the card itself must never match.)
+  function showAuth(mode = "login", message = "") {
     document.documentElement.classList.add("signed-out");
     bar.hidden = true;
     const login = mode === "login", signup = mode === "signup";
+    const error = `<div class="form-error" role="alert" ${message ? "" : "hidden"}>${esc(message)}</div>`;
     if (mode === "forgot") {
-      authCard.innerHTML = `
-        <img class="auth-logo" src="icons/icon-192.png" alt="">
+      authCard.innerHTML = `${LOGO}
         <h1 class="auth-title">Reset password</h1>
         <form class="form auth-form" novalidate>
-          <label class="field"><span class="field-label">Email</span><input name="email" type="email" autocomplete="email" inputmode="email" required value="${esc(email)}"></label>
-          <div class="form-error" ${message ? "" : "hidden"}>${esc(message)}</div>
+          ${emailField("email")}
+          ${error}
           <button type="submit" class="btn btn-primary auth-go">Send reset link</button>
-          <button type="button" class="link auth-link" data-mode="login">Back to log in</button>
+          <button type="button" class="link auth-link" data-go="login">Back to log in</button>
         </form>`;
     } else if (mode === "newpw") {
-      authCard.innerHTML = `
-        <img class="auth-logo" src="icons/icon-192.png" alt="">
+      authCard.innerHTML = `${LOGO}
         <h1 class="auth-title">New password</h1>
         <form class="form auth-form" novalidate>
-          ${pwField("password", "New password", "new-password")}
-          <div class="form-error" ${message ? "" : "hidden"}>${esc(message)}</div>
+          ${pwField("password", "New password", "new-password", PW_HINT)}
+          ${error}
           <button type="submit" class="btn btn-primary auth-go">Save password</button>
         </form>`;
     } else {
-      authCard.innerHTML = `
-        <img class="auth-logo" src="icons/icon-192.png" alt="">
+      authCard.innerHTML = `${LOGO}
         <h1 class="auth-title">Life Tracker</h1>
-        <div class="seg auth-seg">
+        <div class="seg auth-seg" role="radiogroup" aria-label="Log in or sign up">
           <label><input type="radio" name="authMode" value="login"${login ? " checked" : ""}><span>Log in</span></label>
           <label><input type="radio" name="authMode" value="signup"${signup ? " checked" : ""}><span>Sign up</span></label>
         </div>
         <form class="form auth-form" novalidate>
-          <label class="field"><span class="field-label">Email</span><input name="email" type="email" autocomplete="email" inputmode="email" required value="${esc(email)}"></label>
-          ${pwField("password", "Password", login ? "current-password" : "new-password")}
-          <div class="form-error" ${message ? "" : "hidden"}>${esc(message)}</div>
+          ${signup ? `<label class="field"><span class="field-label">Username</span>
+            <input name="username" type="text" autocomplete="nickname" autocapitalize="none" spellcheck="false" required maxlength="${NAME_MAX}" value="${esc(draft.username)}"></label>` : ""}
+          ${emailField(login ? "username" : "email")}
+          ${pwField("password", "Password", login ? "current-password" : "new-password", signup ? PW_HINT : "")}
+          ${error}
           <button type="submit" class="btn btn-primary auth-go">${login ? "Log in" : "Create account"}</button>
-          ${login ? `<button type="button" class="link auth-link" data-mode="forgot">Forgot password?</button>` : ""}
+          ${login ? `<button type="button" class="link auth-link" data-go="forgot">Forgot password?</button>` : ""}
         </form>`;
     }
-    authCard.dataset.mode = mode;
+    authCard.dataset.screen = mode;
     authCard.onclick = null;
-    const first = authCard.querySelector("input[name=email]:not([value='']), input[name=email]");
-    const focusEl = mode === "newpw" ? authCard.querySelector("input[name=password]")
-      : first && first.value ? authCard.querySelector("input[name=password]") || first : first;
-    if (focusEl) setTimeout(() => focusEl.focus(), 0);
+    // Start in the first box that is still empty
+    const boxes = [...authCard.querySelectorAll("form input")];
+    const focusEl = boxes.find((i) => !i.value) || boxes[0];
+    if (focusEl) setTimeout(() => { if (focusEl.isConnected) focusEl.focus(); }, 0);
   }
   function hideAuth() {
     document.documentElement.classList.remove("signed-out");
   }
-  const authError = (msg) => {
+  const authError = (msg, input) => {
     const box = authCard.querySelector(".form-error");
     if (box) { box.textContent = msg; box.hidden = !msg; box.classList.toggle("ok", false); }
+    authCard.querySelectorAll("[aria-invalid]").forEach((i) => i.removeAttribute("aria-invalid"));
+    if (input) { input.setAttribute("aria-invalid", "true"); input.focus(); }
   };
   const authOk = (msg) => { const box = authCard.querySelector(".form-error"); if (box) { box.textContent = msg; box.hidden = false; box.classList.add("ok"); } };
   const friendly = (e) => {
     const m = String((e && e.message) || e || "");
     if (/invalid login credentials/i.test(m)) return "Wrong email or password.";
-    if (/already registered|already been registered/i.test(m)) return "That email already has an account. Log in instead.";
+    if (/already registered|already been registered|already exists/i.test(m)) return "That email already has an account. Log in instead.";
     if (/email not confirmed/i.test(m)) return "Confirm your email first (check your inbox), then log in.";
+    if (/signups? (are )?(not allowed|disabled)/i.test(m)) return "New accounts are switched off right now.";
+    if (/password should be|weak password/i.test(m)) return `Pick a longer password (${PW_MIN} characters or more).`;
+    if (/should be different|same.*password/i.test(m)) return "That is already your password. Pick a different one.";
     if (/rate limit|too many/i.test(m)) return "Too many tries. Wait a minute and try again.";
-    if (/address.*(invalid|not authorized)|not authorized/i.test(m)) return "Couldn't send an email to that address. Check it's typed right.";
+    if (/address.*(invalid|not authorized)|not authorized|invalid.*email|email.*invalid/i.test(m)) return "That email address doesn't look right. Check it's typed correctly.";
     if (isNetworkError(e)) return "No internet connection. Try again when you're online.";
     return m || "Something went wrong. Try again.";
   };
+  // Returns [message, input] for the first box that isn't filled in properly
+  function checkFields(form, mode) {
+    if (form.username) {
+      form.username.value = cleanName(form.username.value);
+      if (form.username.value.length < NAME_MIN) return [`Pick a username (${NAME_MIN} characters or more).`, form.username];
+    }
+    if (form.email) {
+      form.email.value = form.email.value.trim();
+      if (!form.email.value) return ["Enter your email address.", form.email];
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(form.email.value)) return ["That email address doesn't look right.", form.email];
+    }
+    if (form.password) {
+      if (!form.password.value) return ["Enter your password.", form.password];
+      if (mode !== "login" && form.password.value.length < PW_MIN) return [`Passwords need at least ${PW_MIN} characters.`, form.password];
+    }
+    return null;
+  }
+  function toggleEye(eye) {
+    const input = eye.parentElement.querySelector("input");
+    const show = input.type === "password";
+    input.type = show ? "text" : "password";
+    eye.innerHTML = show ? EYE_OFF : EYE;
+    eye.setAttribute("aria-label", show ? "Hide password" : "Show password");
+  }
 
-  auth.addEventListener("change", (e) => { if (e.target.name === "authMode") showAuth(e.target.value, "", (authCard.querySelector("[name=email]") || {}).value || ""); });
+  auth.addEventListener("change", (e) => { if (e.target.name === "authMode") { remember(); showAuth(e.target.value); } });
+  auth.addEventListener("input", (e) => { if (e.target.hasAttribute("aria-invalid")) e.target.removeAttribute("aria-invalid"); });
   auth.addEventListener("click", (e) => {
     const eye = e.target.closest("[data-eye]");
-    if (eye) {
-      const input = eye.parentElement.querySelector("input");
-      const show = input.type === "password";
-      input.type = show ? "text" : "password";
-      eye.innerHTML = show ? EYE_OFF : EYE;
-      eye.setAttribute("aria-label", show ? "Hide password" : "Show password");
-      return;
-    }
-    const m = e.target.closest("[data-mode]");
-    if (m) showAuth(m.dataset.mode, "", (authCard.querySelector("[name=email]") || {}).value || "");
+    if (eye) return toggleEye(eye);
+    const go = e.target.closest("[data-go]");
+    if (go) { remember(); showAuth(go.dataset.go); }
   });
+  let submitting = false;
   auth.addEventListener("submit", async (e) => {
     e.preventDefault();
+    if (submitting) return;
     const form = e.target;
     const go = form.querySelector(".auth-go");
-    const mode = authCard.dataset.mode;
-    const email = form.email ? form.email.value.trim() : "";
+    const mode = authCard.dataset.screen;
+    const bad = checkFields(form, mode);
+    if (bad) return authError(bad[0], bad[1]);
+    remember();
+    const email = form.email ? form.email.value : "";
     const password = form.password ? form.password.value : "";
-    if (form.email && !/^\S+@\S+\.\S+$/.test(email)) return authError("Enter your email address.");
-    if (form.password && password.length < 6) return authError("Passwords need at least 6 characters.");
     const label = go.textContent;
+    let entering = false; // logged in: the button stays busy until the app opens
+    submitting = true;
     go.disabled = true;
     go.textContent = "One moment…";
     authError("");
@@ -484,10 +552,16 @@ const Sync = (function () {
       if (mode === "login") {
         const { error } = await sb.auth.signInWithPassword({ email, password });
         if (error) throw error;
+        entering = true;
       } else if (mode === "signup") {
-        const { data, error } = await sb.auth.signUp({ email, password, options: { emailRedirectTo: redirectUrl() } });
+        const username = form.username.value;
+        const { data, error } = await sb.auth.signUp({ email, password, options: { emailRedirectTo: redirectUrl(), data: { username } } });
         if (error) throw error;
-        if (!data.session) { showAuth("login", "", email); authOk("Check your email to confirm your account, then log in."); return; }
+        // (With "Confirm email" on, Supabase answers an email that is already taken with a user that has no identities)
+        if (data.user && data.user.identities && !data.user.identities.length) throw new Error("User already registered");
+        if (!data.session) { showAuth("login"); authOk("Check your email to confirm your account, then log in."); return; }
+        welcome = username;
+        entering = true;
       } else if (mode === "forgot") {
         const { error } = await sb.auth.resetPasswordForEmail(email, { redirectTo: redirectUrl() });
         if (error) throw error;
@@ -500,9 +574,12 @@ const Sync = (function () {
         if (user && ready) hideAuth(); else { const { data } = await sb.auth.getSession(); if (data.session) start(data.session.user); }
       }
     } catch (err) {
-      authError(friendly(err));
+      const msg = friendly(err);
+      authError(msg, /password/i.test(msg) && form.password ? form.password : /email/i.test(msg) && form.email ? form.email : null);
     } finally {
-      if (go.isConnected) { go.disabled = false; go.textContent = label; }
+      submitting = false;
+      const restore = () => { if (go.isConnected) { go.disabled = false; go.textContent = label; } };
+      if (entering) setTimeout(restore, 20000); else restore();
     }
   });
   const redirectUrl = () => (/^https?:$/.test(location.protocol) ? location.origin + location.pathname : CLOUD_CONFIG.siteUrl);
@@ -527,6 +604,7 @@ const Sync = (function () {
     if (what === "status") return syncNow();
     if (what === "logout") return logOut();
     if (what === "password") return changePassword();
+    if (what === "username") return changeUsername();
     if (what === "delete") return deleteAccount();
     if (what === "versions") return earlierVersions();
   });
@@ -538,14 +616,8 @@ const Sync = (function () {
       <div class="form-actions"><button type="button" class="btn" data-close-modal>Cancel</button>
       <button type="submit" class="btn ${danger ? "btn-danger" : "btn-primary"}">${submitLabel}</button></div></form>`);
     const form = body.querySelector("form");
-    body.addEventListener("click", (e) => {
-      const eye = e.target.closest("[data-eye]");
-      if (!eye) return;
-      const input = eye.parentElement.querySelector("input");
-      const show = input.type === "password";
-      input.type = show ? "text" : "password";
-      eye.innerHTML = show ? EYE_OFF : EYE;
-    });
+    // (on the form, not the sheet: the sheet's body is reused, so listeners there would pile up)
+    form.addEventListener("click", (e) => { const eye = e.target.closest("[data-eye]"); if (eye) toggleEye(eye); });
     form.addEventListener("submit", async (e) => {
       e.preventDefault();
       const btn = form.querySelector("[type=submit]");
@@ -563,9 +635,29 @@ const Sync = (function () {
     return form;
   }
 
+  function changeUsername() {
+    const form = sheet("Change username",
+      `<label class="field"><span class="field-label">Username</span>
+        <input name="username" type="text" autocomplete="nickname" autocapitalize="none" spellcheck="false" maxlength="${NAME_MAX}" value="${esc(user.name)}"></label>`,
+      "Save", async (f) => {
+        const username = cleanName(f.username.value);
+        if (username.length < NAME_MIN) return `Pick a username (${NAME_MIN} characters or more).`;
+        if (username !== user.name) {
+          const { error } = await sb.auth.updateUser({ data: { username } });
+          if (error) return friendly(error);
+          user.name = username;
+          paintAccount();
+        }
+        closeModal();
+        toast("Username changed");
+      });
+    form.username.select();
+  }
+
   function changePassword() {
-    sheet("Change password", pwField("current", "Current password", "current-password") + pwField("password", "New password", "new-password"), "Save", async (f) => {
-      if (f.password.value.length < 6) return "Passwords need at least 6 characters.";
+    sheet("Change password", pwField("current", "Current password", "current-password") + pwField("password", "New password", "new-password", PW_HINT), "Save", async (f) => {
+      if (!f.current.value) return "Enter your current password.";
+      if (f.password.value.length < PW_MIN) return `Passwords need at least ${PW_MIN} characters.`;
       const check = await sb.auth.signInWithPassword({ email: user.email, password: f.current.value });
       if (check.error) return "Current password is wrong.";
       const { error } = await sb.auth.updateUser({ password: f.password.value });
@@ -642,7 +734,10 @@ const Sync = (function () {
     // (Supabase asks not to call it again from inside this callback: run on the next tick)
     setTimeout(() => {
       if (event === "PASSWORD_RECOVERY") { recovering = true; showAuth("newpw"); return; }
-      if (session && session.user) { if (!user || user.id !== session.user.id) start(session.user); }
+      if (session && session.user) {
+        if (!user || user.id !== session.user.id) start(session.user);
+        else { user.email = session.user.email; user.name = nameOf(session.user); paintAccount(); } // e.g. username changed on another device
+      }
       else if (event === "SIGNED_OUT" || event === "INITIAL_SESSION") { user = null; ready = false; showAuth("login"); }
       // Tidy reset-link leftovers out of the address (keeps the tab switching happy)
       if (/access_token|error_code|type=recovery/.test(location.hash)) history.replaceState(null, "", location.pathname + location.search + "#pnl");

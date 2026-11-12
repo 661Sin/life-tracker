@@ -1587,6 +1587,8 @@ td.actions { width: 1%; white-space: nowrap; }
 /* Not logged in: the app is hidden behind the log-in screen */
 html.signed-out main, html.signed-out .side-tabs, html.signed-out .jr-mini, html.signed-out .cloud-bar { visibility: hidden; }
 .auth { display: none; }
+/* A sheet opened from the log-in screen (e.g. "Export a backup first") sits above it */
+html.signed-out .modal { z-index: 210; }
 html.signed-out .auth {
   position: fixed; inset: 0; z-index: 200; display: grid; place-items: center; overflow-y: auto;
   padding: max(24px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) max(24px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
@@ -1603,6 +1605,8 @@ html.signed-out .auth {
 .auth-actions { display: flex; flex-direction: column; gap: 10px; }
 .auth-actions .btn { width: 100%; min-height: 46px; }
 .form-error.ok { color: var(--positive); }
+.auth-form .form-error { text-align: center; }
+.auth input[aria-invalid="true"] { border-color: var(--negative); }
 /* Password box with a show / hide eye */
 .auth-pw { position: relative; display: block; }
 .auth-pw input { padding-right: 48px; }
@@ -1639,7 +1643,9 @@ html.signed-out .auth {
 }
 .cloud-avatar:focus-visible, .cloud-status:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .cloud-menu { min-width: 230px; z-index: 30; }
-.cloud-email { padding: 9px 12px 10px; font-size: 13px; color: var(--text-muted); border-bottom: 1px solid var(--border); margin-bottom: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cloud-who { padding: 9px 12px 10px; border-bottom: 1px solid var(--border); margin-bottom: 4px; }
+.cloud-name { font-size: 15px; font-weight: 600; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cloud-email { font-size: 13px; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .menu-item.danger-item { color: var(--negative); }
 .btn-danger { background: var(--negative); border-color: transparent; color: var(--on-accent); font-weight: 600; }
 .btn-danger:hover { background: var(--negative); opacity: 0.9; }

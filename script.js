@@ -151,13 +151,18 @@ if (document.fonts) document.fonts.ready.then(placeAllBubbles);
 // element so the caller (e.g. a PnL form) can hook up its own events.
 const modal = document.getElementById("modal");
 const modalTitle = document.getElementById("modal-title");
-const modalBody = document.getElementById("modal-body");
+let modalBody = document.getElementById("modal-body");
 let lastFocused = null; // so focus returns to the button that opened the modal
 
 function openModal(title, html) {
   if (modal.hidden) lastFocused = document.activeElement;
   modalTitle.textContent = title;
   modal.querySelector(".modal-box").className = "modal-box"; // drop any special sheet style (e.g. the full check-in sheet)
+  // A fresh, empty body every time: screens attach their tap handlers to it, and on a reused
+  // element those would pile up (an earlier sheet's Delete / Edit would fire again on this one).
+  const freshBody = modalBody.cloneNode(false);
+  modalBody.replaceWith(freshBody);
+  modalBody = freshBody;
   modalBody.innerHTML = html;
   if (typeof Pickers !== "undefined") Pickers.enhance(modalBody); // native selects / dates / times → glass pickers
   modal.hidden = false;
