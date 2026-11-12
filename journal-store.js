@@ -41,6 +41,7 @@ const JournalStore = {
   save() {
     try {
       localStorage.setItem(JOURNAL_STORAGE_KEY, JSON.stringify(this.data));
+      if (typeof Sync !== "undefined") Sync.changed("journal"); // cloud: save to the account in the background
       return true;
     } catch (e) {
       alert("Couldn't save your Journal in this browser (storage full?). Export a backup to be safe.");
@@ -113,15 +114,23 @@ const Media = {
     });
   },
 
-  async put(blob, id = JournalStore.uid()) {
+  // opts.fromCloud: a copy just downloaded from the account (don't upload it back)
+  async put(blob, id = JournalStore.uid(), opts = {}) {
     await this.tx("readwrite", (s) => s.put({ id, blob, type: blob.type, size: blob.size, created: Date.now() }));
     this.askToKeep();
+    if (!opts.fromCloud && typeof Sync !== "undefined") Sync.mediaAdded(id);
     return id;
   },
-  async get(id) { const r = await this.tx("readonly", (s) => s.get(id)); return r ? r.blob : null; },
+  // Missing on this device (e.g. added on the phone): fetched from the account when logged in
+  async get(id) {
+    const r = await this.tx("readonly", (s) => s.get(id));
+    if (r) return r.blob;
+    return typeof Sync !== "undefined" ? Sync.fetchMedia(id) : null;
+  },
   async del(ids) {
     ids = [].concat(ids).filter(Boolean);
     if (!ids.length) return;
+    if (typeof Sync !== "undefined") Sync.mediaRemoved(ids);
     for (const id of ids) { const u = this._urls.get(id); if (u) { this._urls.delete(id); u.then((x) => x && URL.revokeObjectURL(x)); } }
     await this.tx("readwrite", (s) => { ids.forEach((id) => s.delete(id)); return null; });
   },
@@ -135,7 +144,9 @@ const Media = {
   url(id) {
     if (!id) return Promise.resolve(null);
     if (!this._urls.has(id)) {
-      this._urls.set(id, this.get(id).then((b) => (b ? URL.createObjectURL(b) : null)).catch(() => null));
+      // A miss isn't remembered: the file may still arrive from the account
+      this._urls.set(id, this.get(id).then((b) => (b ? URL.createObjectURL(b) : null)).catch(() => null)
+        .then((u) => { if (!u) this._urls.delete(id); return u; }));
     }
     return this._urls.get(id);
   },

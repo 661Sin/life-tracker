@@ -56,6 +56,7 @@ const LifeStore = {
   save() {
     try {
       localStorage.setItem(LIFE_STORAGE_KEY, JSON.stringify(this.data));
+      if (typeof Sync !== "undefined") Sync.changed("life"); // cloud: save to the account in the background
     } catch (e) {
       alert("Couldn't save your data in this browser. Export a backup to be safe.");
     }

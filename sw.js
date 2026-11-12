@@ -9,7 +9,7 @@
 // it in the background, the page shows "Update available, tap to refresh",
 // and only after that tap does it take over (so nothing changes mid-use).
 
-const VERSION = "2026-11-12.222110";
+const VERSION = "2026-11-12.225418";
 const CACHE = `life-tracker-${VERSION}`;
 const FONTS = "life-tracker-fonts";
 
@@ -29,6 +29,9 @@ const APP_FILES = [
   "journal-calc.js",
   "journal-store.js",
   "journal.js",
+  "cloud-config.js",
+  "cloud.js",
+  "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.110.0/dist/umd/supabase.js",
   "manifest.webmanifest",
   "icons/icon.svg",
   "icons/icon-192.png",
@@ -61,13 +64,23 @@ self.addEventListener("fetch", (event) => {
   if (req.method !== "GET") return;
   const url = new URL(req.url);
 
-  // The app's own files: from the cache (any page address opens index.html)
+  // The app's own files: from the cache. Opening the app (folder or index.html) works
+  // offline; any other page in this folder loads normally (the app if offline).
   if (url.origin === self.location.origin) {
     event.respondWith((async () => {
       const cache = await caches.open(CACHE);
-      if (req.mode === "navigate") return (await cache.match("index.html")) || fetch(req);
+      if (req.mode === "navigate") {
+        if (/\/(index\.html)?$/.test(url.pathname)) return (await cache.match("index.html")) || fetch(req);
+        return fetch(req).catch(async () => (await cache.match("index.html")) || Response.error());
+      }
       return (await cache.match(req, { ignoreSearch: true })) || fetch(req);
     })());
+    return;
+  }
+
+  // The Supabase library (an exact version, so it never changes): from the app cache
+  if (url.hostname === "cdn.jsdelivr.net") {
+    event.respondWith(caches.open(CACHE).then((c) => c.match(req)).then((hit) => hit || fetch(req)));
     return;
   }
 
@@ -80,5 +93,5 @@ self.addEventListener("fetch", (event) => {
       return hit || fresh;
     })());
   }
-  // Everything else (YouTube, SoundCloud, Spotify, link previews) goes straight to the internet
+  // Everything else (Supabase sync, YouTube, SoundCloud, Spotify, link previews) goes straight to the internet
 });

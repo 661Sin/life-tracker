@@ -64,6 +64,7 @@ const Store = {
   save() {
     try {
       localStorage.setItem(PNL_STORAGE_KEY, JSON.stringify(this.data));
+      if (typeof Sync !== "undefined") Sync.changed("pnl"); // cloud: save to the account in the background
     } catch (e) {
       alert("Couldn't save your data in this browser. Export a backup from Accounts to be safe.");
     }
