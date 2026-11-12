@@ -51,6 +51,7 @@
     out: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/></svg>`,
     music: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 18V6l11-2v12"/><circle cx="6.5" cy="18" r="2.5"/><circle cx="17.5" cy="16" r="2.5"/></svg>`,
     close: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>`,
+    vol: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z"/><path d="M15.5 9a4 4 0 0 1 0 6M18 6.5a7.5 7.5 0 0 1 0 11"/></svg>`,
   };
   const letter = (site) => esc((String(site || "?").replace(/^www\./, "")[0] || "?").toUpperCase());
 
@@ -640,14 +641,12 @@
   }
 
   // ================= Song of the week =================
-  // A "now playing" card. A link plays in that site's own player (loaded only
-  // when Play is pressed); an uploaded file plays in our glass player through
-  // ONE shared <audio> element that lives outside the page, so it keeps
-  // playing on other tabs (see the mini-player below).
-  const songUi = { current: null, embedFor: null };   // song shown in the card; song whose embed is open
-  const audio = new Audio();
-  audio.preload = "metadata";
-  const player = { songId: null, closed: false };     // song loaded into the <audio>; mini-player dismissed
+  // A "now playing" card that only CONTROLS the global player (player.js).
+  // Redrawing the card never touches the player, so the song keeps going.
+  // YouTube / SoundCloud / Spotify / uploaded files all get the same glass
+  // controls; Apple Music has no public player we can drive, so it shows an
+  // "Open in Apple Music" button instead.
+  const songUi = { current: null };   // song shown in the card (null = this week's)
 
   const thisWeek = () => J.weekStart(J.today());
   const weekLabel = (w) => {
@@ -659,14 +658,16 @@
     if (songUi.current && !JournalStore.get("songs", songUi.current)) songUi.current = null;
     return songUi.current ? JournalStore.get("songs", songUi.current) : J.songForWeek(d.songs, thisWeek());
   };
-  const isPlaying = (s) => !!s && (s.source === "file" ? player.songId === s.id && !audio.paused : songUi.embedFor === s.id);
   const coverHtml = (s, cls = "jr-cover") => s && (s.coverMedia || s.cover)
     ? `<span class="${cls}"><img ${s.coverMedia ? `data-media="${esc(s.coverMedia)}"` : `data-src="${esc(s.cover)}" referrerpolicy="no-referrer"`} alt=""></span>`
     : `<span class="${cls} jr-cover-empty">${ICON.music}</span>`;
+  // What the player can do with a song
+  const playKind = (s) => s.source === "file" ? "file"
+    : s.link && ["youtube", "soundcloud", "spotify"].includes(s.link.provider) ? s.link.provider : null;
+  const openLabel = (s) => s.link ? `Open in ${s.link.site}` : "";
 
   function renderSong() {
     const box = slot("song");
-    const keep = box.querySelector(".jr-song-embed iframe");   // an open embed survives redraws
     const s = shownSong();
     const week = thisWeek();
     const others = J.songsByWeek(D().songs).filter((x) => !s || x.id !== s.id);
@@ -679,7 +680,7 @@
           ${btn("Add song", "song-add")}
         </div></div>`;
     } else {
-      const playing = isPlaying(s);
+      const kind = playKind(s);
       const current = s.week === week;
       card = `<div class="card jr-song" data-song="${esc(s.id)}">
         <div class="jr-song-top">
@@ -687,28 +688,29 @@
           <div class="jr-song-info" data-action="song-edit" data-id="${esc(s.id)}" role="button" tabindex="0" aria-label="Edit song">
             <div class="stat-label">${current ? "Song of the week" : "Week of"} · ${weekLabel(s.week)}</div>
             <div class="jr-song-title">${esc(s.title || "Untitled")}</div>
-            ${s.artist ? `<div class="jr-song-artist">${esc(s.artist)}</div>` : ""}
+            <div class="jr-song-artist">${esc(s.artist || "")}</div>
           </div>
-          <button type="button" class="jr-song-play${playing ? " on" : ""}" data-action="song-play" data-id="${esc(s.id)}" aria-label="${playing ? "Pause" : "Play"}">${playing ? ICON.pause : ICON.play}</button>
+          ${kind ? `<button type="button" class="jr-song-play" data-action="song-play" data-id="${esc(s.id)}" aria-label="Play">${ICON.play}</button>`
+                 : `<a class="btn jr-song-open" href="${esc(s.url)}" target="_blank" rel="noopener noreferrer">${esc(openLabel(s))} ${ICON.out}</a>`}
         </div>
-        ${s.source === "file" ? `<div class="jr-seekrow">
-            <span class="jr-time" data-t-now>${J.clock(player.songId === s.id ? audio.currentTime : 0)}</span>
-            <input type="range" class="jr-seek" min="0" max="1000" step="1" value="${player.songId === s.id && audio.duration ? Math.round((audio.currentTime / audio.duration) * 1000) : 0}" aria-label="Seek" data-seek>
-            <span class="jr-time" data-t-len>${player.songId === s.id && audio.duration ? J.clock(audio.duration) : "–:––"}</span>
-          </div>` : ""}
-        <div class="jr-song-embed" data-embed></div>
+        ${kind ? `<div class="jr-seekrow">
+            <span class="jr-time" data-t-now>0:00</span>
+            <input type="range" class="jr-seek" min="0" max="1000" step="1" value="0" aria-label="Seek" data-seek>
+            <span class="jr-time" data-t-len>–:––</span>
+          </div>
+          <div class="jr-song-foot">
+            ${Player.canVolume(kind) ? `<label class="jr-vol">${ICON.vol}<input type="range" class="jr-seek jr-vol-range" min="0" max="100" step="1" value="${Math.round(Player.state.vol * 100)}" aria-label="Volume" data-vol></label>` : "<span></span>"}
+            ${kind === "spotify" ? `<a class="jr-out jr-song-ext" href="${esc(s.url)}" target="_blank" rel="noopener noreferrer">Open in Spotify ${ICON.out}</a>` : ""}
+          </div>
+          <div class="jr-song-err" data-err hidden></div>` : ""}
         ${s.note ? `<div class="jr-song-note">${esc(s.note)}</div>` : ""}
         ${!current ? `<button type="button" class="link jr-song-back" data-action="song-week">Back to this week</button>` : ""}
       </div>`;
     }
-    const list = others.length ? collapsedList(others) : "";
-    box.innerHTML = card + list;
-    if (s && songUi.embedFor === s.id && s.link && s.link.embed) {
-      const holder = box.querySelector("[data-embed]");
-      if (keep) holder.appendChild(keep); else holder.innerHTML = songEmbed(s);
-    } else songUi.embedFor = null;
+    box.innerHTML = card + (others.length ? collapsedList(others) : "");
     lazy(box);
     box.querySelectorAll("img[data-media]").forEach(loadImg);
+    syncCard(Player.state);
   }
   function collapsedList(songs) {
     const open = slot("song").querySelector(".jr-prev-weeks[open]") ? " open" : "";
@@ -720,69 +722,90 @@
           <span class="lf-trail"><span class="muted">${fmtShort(x.week)}</span></span>
         </div>`).join("")}</div></details>`;
   }
-  function songEmbed(s) {
-    const l = s.link;
-    const h = l.height || (l.provider === "youtube" ? null : 152);
-    return `<iframe src="${esc(l.embed)}" title="${esc(s.title || l.site)}" style="${h ? `height:${h}px` : "aspect-ratio:16/9"}"
-      allow="autoplay; encrypted-media; picture-in-picture; fullscreen; clipboard-write" allowfullscreen loading="lazy"
-      referrerpolicy="strict-origin-when-cross-origin"></iframe>`;
+
+  // Mirror the player onto the card (play button, seek bar, times, errors)
+  function syncCard(st) {
+    const card = slot("song").querySelector(".jr-song[data-song]");
+    if (!card) return;
+    const mine = st.id === card.dataset.song;
+    const playing = mine && (st.status === "playing" || st.status === "loading");
+    const b = card.querySelector(".jr-song-play");
+    if (b) {
+      if (b.classList.contains("on") !== playing || !b.dataset.drawn) {
+        b.dataset.drawn = "1";
+        b.classList.toggle("on", playing);
+        b.innerHTML = playing ? ICON.pause : ICON.play;
+        b.setAttribute("aria-label", playing ? "Pause" : "Play");
+      }
+      b.classList.toggle("loading", mine && st.status === "loading");
+    }
+    const seek = card.querySelector("[data-seek]");
+    if (seek && !seek.matches(":active")) seek.value = mine && st.dur ? Math.round((st.pos / st.dur) * 1000) : 0;
+    const now = card.querySelector("[data-t-now]"), len = card.querySelector("[data-t-len]");
+    if (now) now.textContent = J.clock(mine ? st.pos : 0);
+    if (len) len.textContent = mine && st.dur ? J.clock(st.dur) : "–:––";
+    const vol = card.querySelector("[data-vol]");
+    if (vol && !vol.matches(":active")) vol.value = Math.round(st.vol * 100);
+    const err = card.querySelector("[data-err]");
+    if (err) {
+      const show = mine && st.status === "error";
+      err.hidden = !show;
+      if (show) err.innerHTML = `${esc(st.error)}${st.openUrl ? ` <a class="jr-out" href="${esc(st.openUrl)}" target="_blank" rel="noopener noreferrer">${esc(st.openLabel || "Open")} ${ICON.out}</a>` : ""}`;
+    }
+  }
+  Player.on(syncCard);
+
+  // The track handed to the player for a song
+  async function trackFor(s) {
+    const kind = playKind(s);
+    if (!kind) return null;
+    const t = { id: s.id, kind, home: "journal", title: s.title, artist: s.artist, cover: s.cover || "",
+                openUrl: s.url || "", openLabel: openLabel(s), onMeta: (meta) => fillFromSource(s.id, kind, meta) };
+    if (s.coverMedia) t.cover = (await Media.url(s.coverMedia)) || "";
+    if (kind === "file") {
+      t.src = await Media.url(s.audio);
+      if (!t.src) return toast("This song's file is missing (restore a backup with audio)."), null;
+    }
+    if (kind === "youtube") { t.videoId = s.link.id; t.cover = t.cover || s.link.thumb || ""; }
+    if (kind === "soundcloud") t.url = s.link.url;
+    if (kind === "spotify") t.uri = "spotify:" + s.link.id.replace("/", ":");
+    return t;
+  }
+  // Song / artist / cover the source told us about fill any blanks we saved
+  function fillFromSource(id, kind, meta) {
+    const s = JournalStore.get("songs", id);
+    if (!s) return;
+    const m = kind === "youtube" ? { ...J.splitSongTitle(meta.title, meta.artist), cover: meta.cover } : meta;
+    const patch = {};
+    if (!s.title && m.title) patch.title = m.title;
+    if (!s.artist && m.artist) patch.artist = m.artist;
+    if (!s.cover && !s.coverMedia && m.cover) patch.cover = m.cover;
+    if (!Object.keys(patch).length) return;
+    JournalStore.commit((d) => Object.assign(d.songs.find((x) => x.id === id), patch));
+    Player.update(id, patch);
+    renderSong();
   }
 
-  // ---- Playing ----
   async function playSong(id) {
     const s = JournalStore.get("songs", id);
     if (!s) return;
-    if (s.source === "link") {
-      songUi.embedFor = songUi.embedFor === id ? null : id;   // Play opens the site's player; again closes it
-      if (songUi.embedFor) audio.pause();
-      return renderSong();
-    }
-    songUi.embedFor = null;
-    if (player.songId !== id) {
-      const url = await Media.url(s.audio);
-      if (!url) return toast("This song's file is missing (restore a backup with audio).");
-      player.songId = id;
-      audio.src = url;
-    }
-    player.closed = false;
-    if (audio.paused) audio.play().catch(() => {}); else audio.pause();
-    setMediaSession(s);
+    if (Player.state.id === id) return Player.toggle();
+    const t = await trackFor(s);
+    if (t) Player.load(t, true);
   }
-  // Lock-screen / headphone controls on phones
-  function setMediaSession(s) {
-    if (!("mediaSession" in navigator) || !window.MediaMetadata) return;
-    const meta = { title: s.title || "Song of the week", artist: s.artist || "", artwork: [] };
-    const set = (src) => { if (src) meta.artwork = [{ src, sizes: "512x512" }]; navigator.mediaSession.metadata = new MediaMetadata(meta); };
-    if (s.coverMedia) Media.url(s.coverMedia).then(set); else set(s.cover);
-    navigator.mediaSession.setActionHandler("play", () => audio.play());
-    navigator.mediaSession.setActionHandler("pause", () => audio.pause());
-  }
-  // Keep the card's button, seek bar and times in step with the audio
-  function syncPlayer() {
-    const card = slot("song").querySelector(`.jr-song[data-song="${player.songId}"]`);
-    if (card) {
-      const b = card.querySelector(".jr-song-play");
-      b.classList.toggle("on", !audio.paused);
-      b.innerHTML = audio.paused ? ICON.play : ICON.pause;
-      b.setAttribute("aria-label", audio.paused ? "Play" : "Pause");
-      const seek = card.querySelector("[data-seek]");
-      if (seek && !seek.matches(":active")) seek.value = audio.duration ? Math.round((audio.currentTime / audio.duration) * 1000) : 0;
-      card.querySelector("[data-t-now]").textContent = J.clock(audio.currentTime);
-      if (audio.duration) card.querySelector("[data-t-len]").textContent = J.clock(audio.duration);
-    }
-    if (PARTS.mini) PARTS.mini();
-  }
-  ["play", "pause", "timeupdate", "loadedmetadata", "ended", "emptied"].forEach((ev) => audio.addEventListener(ev, syncPlayer));
+
+  // Seek bar / volume on the card
   root.addEventListener("input", (e) => {
+    if (e.target.matches("[data-vol]")) return Player.setVolume(e.target.value / 100);
     if (!e.target.matches("[data-seek]")) return;
     const card = e.target.closest(".jr-song");
-    if (card.dataset.song !== player.songId || !audio.duration) return;
-    audio.currentTime = (e.target.value / 1000) * audio.duration;
+    const st = Player.state;
+    if (card.dataset.song === st.id && st.dur) Player.seek((e.target.value / 1000) * st.dur);
   });
   // Pressing the seek bar of a song that isn't loaded yet starts it
   root.addEventListener("pointerdown", (e) => {
     const seek = e.target.closest && e.target.closest("[data-seek]");
-    if (seek && seek.closest(".jr-song").dataset.song !== player.songId) playSong(seek.closest(".jr-song").dataset.song);
+    if (seek && !seek.matches("[data-vol]") && seek.closest(".jr-song").dataset.song !== Player.state.id) playSong(seek.closest(".jr-song").dataset.song);
   });
 
   // ---- Song form ----
@@ -860,14 +883,23 @@
       });
       if (error) return error;
       if (clash) dropMedia.push(...JournalStore.mediaOf(clash));
-      if (s && player.songId === s.id && (source === "link" || entry.audio !== s.audio)) stopAudio();
+      if (s && Player.state.id === s.id) {
+        // Different sound → stop it; same sound → just show the new details (playback carries on)
+        const changed = source !== s.source || (source === "link" ? entry.url !== s.url : !!entry.audio && entry.audio !== s.audio);
+        if (changed) Player.stop();
+        else {
+          Player.update(s.id, { title: entry.title, artist: entry.artist });
+          if (entry.coverMedia) Media.url(entry.coverMedia).then((u) => Player.update(s.id, { cover: u || "" }));
+          else if (source === "link" && entry.cover) Player.update(s.id, { cover: entry.cover });
+        }
+      }
       Media.del(dropMedia).catch(() => {});
       songUi.current = week === thisWeek() ? null : newId;
     }, {
       onDelete: s ? () => {
         const error = JournalStore.commit((d) => { d.songs = d.songs.filter((x) => x.id !== s.id); });
         if (!error) {
-          if (player.songId === s.id) stopAudio();
+          if (Player.state.id === s.id) Player.stop();
           if (songUi.current === s.id) songUi.current = null;
           Media.del(JournalStore.mediaOf(s)).catch(() => {});
         }
@@ -919,62 +951,6 @@
     if (!s) form.url.focus();
   }
 
-  function stopAudio() {
-    audio.pause();
-    audio.removeAttribute("src");
-    audio.load();
-    player.songId = null;
-    if (PARTS.mini) PARTS.mini();
-  }
-
-  // ================= Mini-player =================
-  // On other tabs, an uploaded song that's playing (or paused part-way) gets a
-  // small glass player docked above the bottom bar (bottom right on PC).
-  // Tap the song to go back to the Journal; × stops it.
-  const mini = document.getElementById("jr-mini");
-  function renderMini() {
-    if (!mini) return;
-    const s = player.songId && JournalStore.get("songs", player.songId);
-    const show = !!s && !onJournal && !player.closed && (!audio.paused || audio.currentTime > 0);
-    if (!show) {
-      if (!mini.hidden) {
-        mini.hidden = true;
-        document.body.classList.remove("jr-mini-on");
-      }
-      return;
-    }
-    if (mini.dataset.song !== s.id) {
-      mini.dataset.song = s.id;
-      mini.innerHTML = `
-        <button type="button" class="jr-mini-open" data-mini="open" aria-label="Open Journal">
-          ${coverHtml(s, "jr-cover jr-cover-sm")}
-          <span class="jr-mini-text"><b>${esc(s.title || "Song of the week")}</b>${s.artist ? `<span>${esc(s.artist)}</span>` : ""}</span>
-        </button>
-        <button type="button" class="jr-mini-btn" data-mini="toggle" aria-label="Pause"></button>
-        <button type="button" class="jr-mini-btn jr-mini-x" data-mini="close" aria-label="Stop">${ICON.close}</button>
-        <span class="jr-mini-bar" aria-hidden="true"><span></span></span>`;
-      mini.querySelectorAll("img[data-media]").forEach(loadImg);
-      mini.querySelectorAll("img[data-src]").forEach(loadImg);
-    }
-    const t = mini.querySelector("[data-mini=toggle]");
-    const label = audio.paused ? "Play" : "Pause";
-    if (t.getAttribute("aria-label") !== label || !t.innerHTML) { t.innerHTML = audio.paused ? ICON.play : ICON.pause; t.setAttribute("aria-label", label); }
-    mini.querySelector(".jr-mini-bar span").style.transform = `scaleX(${audio.duration ? audio.currentTime / audio.duration : 0})`;
-    if (mini.hidden) {
-      mini.hidden = false;
-      document.body.classList.add("jr-mini-on");
-      if (canAnimate()) mini.animate([{ opacity: 0, transform: "translateY(16px) scale(0.96)" }, { opacity: 1, transform: "none" }],
-        { duration: 320, easing: cssVar("--ease-spring") || "ease-out" });
-    }
-  }
-  if (mini) mini.addEventListener("click", (e) => {
-    const b = e.target.closest("[data-mini]");
-    if (!b) return;
-    if (b.dataset.mini === "open") location.hash = "#journal";
-    if (b.dataset.mini === "toggle") { if (audio.paused) audio.play().catch(() => {}); else audio.pause(); }
-    if (b.dataset.mini === "close") { audio.pause(); player.closed = true; renderMini(); }
-  });
-
   // ================= Actions =================
   const ACTIONS = {
     menu: (id, el) => {
@@ -1003,12 +979,11 @@
     "song-play": (id) => playSong(id),
     "song-pick": (id) => {           // replay a previous week's song in the card
       songUi.current = id;
-      songUi.embedFor = null;
       renderSong();
       playSong(id);
       window.scrollTo({ top: root.getBoundingClientRect().top + window.scrollY - 20, behavior: canAnimate() ? "smooth" : "auto" });
     },
-    "song-week": () => { songUi.current = null; songUi.embedFor = null; renderSong(); },
+    "song-week": () => { songUi.current = null; renderSong(); },
   };
   function closeMenus() {
     root.querySelectorAll(".menu:not([hidden])").forEach((m) => {
@@ -1040,9 +1015,8 @@
   });
 
   // ================= Drawing =================
-  const PARTS = { song: renderSong, mini: renderMini };
   function render() {
-    PARTS.song();
+    renderSong();
     renderHead();
     renderFilters();
     const y = window.scrollY;
@@ -1055,9 +1029,8 @@
   // The grid can only measure itself while visible: redraw when shown or resized if the column count changed
   const refit = () => { if (onJournal && colCount() && colCount() !== grid.n) renderGrid(); };
   window.addEventListener("hashchange", () => {
+    // Nothing to stop here: the music lives in the global player (player.js)
     if (readHash()) requestAnimationFrame(refit);
-    else if (songUi.embedFor) { songUi.embedFor = null; renderSong(); }   // a site's player stops when you leave
-    if (PARTS.mini) PARTS.mini();
   });
   let resizeTimer = null;
   window.addEventListener("resize", () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(refit, 150); });

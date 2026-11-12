@@ -1285,6 +1285,32 @@ td.actions { width: 1%; white-space: nowrap; }
 .jr-mini-bar { position: absolute; left: 14px; right: 14px; bottom: 4px; height: 2px; border-radius: var(--radius-pill); background: var(--glass-fill-strong); overflow: hidden; }
 .jr-mini-bar span { display: block; height: 100%; background: var(--accent); transform-origin: 0 50%; transform: scaleX(0); }
 
+/* Global player host (player.js): the <audio> and the sites' players live here.
+   Off-screen and see-through, but never display:none (some browsers pause or reload
+   hidden iframes). 200×200 because YouTube won't play in a smaller player. */
+.player-host { position: fixed; left: -400px; top: 0; width: 200px; height: 200px; overflow: hidden; opacity: 0; pointer-events: none; z-index: -1; }
+.player-host iframe, .player-slot { width: 200px; height: 200px; border: 0; }
+.player-host audio { display: block; width: 1px; height: 1px; }
+
+/* Song card: volume, outside links, errors, loading */
+.jr-song-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: -4px; }
+.jr-song-foot:has(> span:only-child) { display: none; }
+.jr-vol { display: flex; align-items: center; gap: 8px; width: 160px; max-width: 50%; color: var(--text-muted); }
+.jr-vol svg { width: 18px; height: 18px; flex-shrink: 0; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.jr-vol svg path:first-child { fill: currentColor; }
+.jr-song-ext { font-size: 13px; margin-left: auto; }
+.jr-song-err { font-size: 13px; color: var(--negative); display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: center; }
+.jr-song-err[hidden] { display: none; }
+.jr-song-err .jr-out { color: var(--accent); }
+.jr-song-open { display: inline-flex; align-items: center; gap: 6px; text-decoration: none; white-space: nowrap; }
+.jr-song-open svg { width: 13px; height: 13px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.jr-song-play.loading { animation: jr-pulse 1.1s ease-in-out infinite; }
+@keyframes jr-pulse { 50% { opacity: 0.55; } }
+.jr-mini-note { display: grid; place-items: center; width: 100%; height: 100%; background: var(--accent-soft); }
+.jr-mini-note[hidden] { display: none; }
+.jr-mini-note svg { width: 45%; height: 45%; fill: none; stroke: var(--accent); stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.jr-mini .jr-cover img[hidden] { display: none; }
+
 /* Masonry grid: columns filled by journal.js (shortest first) */
 .jr-grid { display: flex; gap: 12px; align-items: flex-start; }
 .jr-grid > .empty { flex: 1; }
@@ -1558,7 +1584,7 @@ td.actions { width: 1%; white-space: nowrap; }
 
 /* "Reduce motion" turned on: still backdrop, no springs or slides (script.js also skips its animations) */
 @media (prefers-reduced-motion: reduce) {
-  .blob { animation: none; }
+  .blob, .jr-song-play.loading { animation: none; }
   *, *::before, *::after { transition-duration: 0s !important; }
   .tab:hover, .subnav-link:hover, .tab:active, .subnav-link:active, .btn:active { transform: none; }
 }

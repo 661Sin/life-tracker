@@ -69,7 +69,10 @@
     </section>
   </main>
 
-  <!-- Journal mini-player: docked above the bottom bar while a song plays on another tab (journal.js) -->
+  <!-- Global music player (player.js): created once, never rebuilt, so songs keep playing on every tab.
+       player-host holds the <audio> and the sites' hidden players (off-screen, see-through, never display:none). -->
+  <div class="player-host" id="player-host" aria-hidden="true"></div>
+  <!-- Mini-player: docked above the bottom bar while a song plays and you're on another tab -->
   <div class="jr-mini" id="jr-mini" hidden></div>
 
   <!-- Modal: hidden until opened. Closes via X button, Escape, or clicking the dimmed backdrop. -->
@@ -96,6 +99,8 @@
   <script src="life-store.js"></script>
   <script src="life.js"></script>
   <!-- Journal: same pattern (photos / audio in IndexedDB, see journal-store.js) -->
+  <!-- Global music player (song of the week) -->
+  <script src="player.js"></script>
   <script src="journal-calc.js"></script>
   <script src="journal-store.js"></script>
   <script src="journal.js"></script>
