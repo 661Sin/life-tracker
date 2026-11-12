@@ -967,6 +967,249 @@
     "sleep-target": sleepTargetForm,
   });
 
+  // ---------- Fitness ----------
+  const TYPES = { gym: ["🏋️", "Gym"], run: ["🏃", "Run"], sport: ["⚽", "Sport"], other: ["✨", "Other"] };
+  const typeOf = (w) => TYPES[w.type] || TYPES.other;
+  const kgText = (n) => `${fmtNum(n)} kg`;
+
+  PAGES.fitness = (d) => {
+    const today = L.today();
+    const weeks = L.weeklyWorkouts(d.workouts, today, 12);
+    const now = weeks[weeks.length - 1], prev = weeks[weeks.length - 2];
+    const last = L.sortWorkouts(d.workouts).pop();
+    let html = head({
+      label: "Workouts this week",
+      big: String(now.count),
+      sub: [now.minutes ? `${now.minutes} min` : "", `${prev.count} last week`].filter(Boolean).join(" · "),
+      primary: ["Log workout", "add-workout"],
+      menu: [...(last ? [["Repeat last workout", "repeat-workout"]] : []), ["Personal records", "records"], ["Bodyweight", "bodyweight"]],
+    });
+    if (!d.workouts.length) return html + emptyCard("No workouts yet.");
+    html += `<div class="card chart-card"><h3>Workouts per week</h3><div data-chart="workouts"></div><div class="chart-detail" data-chart-detail></div></div>`;
+    const prs = L.records(d.workouts).prs;
+    const list = L.sortWorkouts(d.workouts).reverse();
+    const rows = (arr) => listCard(arr.map((w) => {
+      const [emoji, label] = typeOf(w);
+      const names = (w.exercises || []).map((e) => e.name).filter(Boolean);
+      return rowEl({
+        action: "edit-workout", id: w.id, lead: `<span class="lf-big-emoji">${emoji}</span>`,
+        title: `${label}${w.minutes ? ` · ${w.minutes} min` : ""}`,
+        meta: [relDay(w.date, today), names.length ? esc(names.slice(0, 3).join(", ") + (names.length > 3 ? ` +${names.length - 3}` : "")) : esc(w.notes)].filter(Boolean).join(" · "),
+        trail: prs[w.id] ? `<span class="lf-pr">🏆 PR</span>` : "",
+      });
+    }));
+    html += section("Recent", rows(list.slice(0, 15)));
+    if (list.length > 15) html += collapsed(`Older (${list.length - 15})`, rows(list.slice(15)));
+    return html;
+  };
+
+  CHARTS.workouts = (el) => {
+    const d = D(), today = L.today();
+    const weeks = L.weeklyWorkouts(d.workouts, today, 12);
+    const pick = chartPicks.workouts && weeks.some((w) => w.start === chartPicks.workouts) ? chartPicks.workouts : weeks[weeks.length - 1].start;
+    el.innerHTML = barChart({
+      width: el.clientWidth, pick,
+      items: weeks.map((w) => ({ key: w.start, label: fmtShort(w.start).split(" ")[0], value: w.count || null, good: true })),
+    });
+    const detail = (key) => {
+      const w = weeks.find((x) => x.start === key);
+      return `<div class="preview"><span>Week of ${fmtShort(key)}</span><span><b>${plural(w.count, "workout")}</b></span>${w.minutes ? `<span>${w.minutes} min</span>` : ""}</div>`;
+    };
+    if (!el._wired) { el._show = wireBars(el, "workouts", detail); el._wired = true; }
+    el._show(pick);
+  };
+
+  // ---- Workout form ----
+  // Gym workouts have exercises, each with sets of reps × kg. Picking an
+  // exercise you've done before fills in your last sets. Beating a record
+  // shows "New PR" on that exercise as you type.
+  function workoutForm(id, preset = null) {
+    const d = D();
+    const w = id ? LifeStore.get("workouts", id)
+      : preset ? { ...structuredClone(preset), id: undefined, created: undefined, date: L.today(), notes: "" }
+      : { date: L.today(), type: "gym", minutes: "", notes: "", exercises: [] };
+    const known = L.exerciseNames(d.workouts);
+    const lastGym = L.sortWorkouts(d.workouts).reverse().find((x) => x.type === "gym" && (x.exercises || []).length && x.id !== id);
+    // Records from every other workout, to spot a new PR while typing
+    const others = L.records(d.workouts.filter((x) => x.id !== id)).best;
+    const recordFor = (name) => others.find((r) => r.name.toLowerCase() === name.trim().toLowerCase());
+
+    const setRow = (s = { reps: "", kg: "" }, i = 0) => `
+      <div class="lf-set" data-set>
+        <span class="lf-set-n">${i + 1}</span>
+        <input type="number" inputmode="numeric" min="0" step="1" placeholder="reps" value="${s.reps ?? ""}" data-reps aria-label="Reps">
+        <span class="muted">×</span>
+        <input type="number" inputmode="decimal" min="0" step="any" placeholder="kg" value="${s.kg ?? ""}" data-kg aria-label="Weight in kg">
+        <span class="muted">kg</span>
+        <button type="button" class="btn btn-sm btn-ghost" data-set-remove aria-label="Remove set">−</button>
+      </div>`;
+    const exBlock = (e) => {
+      const r = recordFor(e.name);
+      return `<div class="lf-ex" data-ex data-name="${esc(e.name)}">
+        <div class="lf-ex-head"><b>${esc(e.name)}</b><span class="lf-pr" data-ex-pr></span>
+          <span class="muted small">${r ? `Best ${kgText(r.kg)}` : "First time"}</span>
+          <button type="button" class="btn btn-sm btn-ghost" data-ex-remove aria-label="Remove ${esc(e.name)}">✕</button></div>
+        <div data-sets>${(e.sets && e.sets.length ? e.sets : [{}]).map(setRow).join("")}</div>
+        <button type="button" class="btn btn-sm" data-add-set>+ Set</button>
+      </div>`;
+    };
+
+    const form = openForm(id ? `${typeOf(w)[1]} · ${fmtDay(w.date)}` : "Log workout", `
+      ${row2(field("Date", dateInput("date", w.date, "required")), field("Minutes", numInput("minutes", w.minutes, 'min="0" step="1" inputmode="numeric" placeholder="e.g. 60"')))}
+      ${fieldDiv("Type", seg("type", Object.entries(TYPES).map(([k, [e, t]]) => [k, `${e} ${t}`]), w.type || "gym"))}
+      <div data-gym>
+        ${!id && lastGym && !preset ? `<button type="button" class="link" data-copy-last>Copy last gym workout (${fmtDay(lastGym.date)})</button>` : ""}
+        <div data-exercises>${(w.exercises || []).map(exBlock).join("")}</div>
+        <div class="lf-add-ex">
+          ${field("Add exercise", select("pickExercise", [["", "Choose…"], ...known.map((n) => [n, n]), ["__new", "+ New exercise"]], ""))}
+          <div class="lf-inline" data-new-ex hidden>${field("New exercise", textInput("newExercise", "", 'placeholder="e.g. Bench press"'))}<button type="button" class="btn" data-add-new>Add</button></div>
+        </div>
+      </div>
+      ${field("Notes", textArea("notes", w.notes))}`,
+    (v, f) => {
+      const exercises = [];
+      for (const ex of f.querySelectorAll("[data-ex]")) {
+        const sets = [...ex.querySelectorAll("[data-set]")].map((s) => ({ reps: num(s.querySelector("[data-reps]").value), kg: num(s.querySelector("[data-kg]").value) }))
+          .filter((s) => s.reps > 0);
+        if (sets.length) exercises.push({ name: ex.dataset.name, sets });
+      }
+      if (v.type === "gym" && f.querySelector("[data-ex]") && !exercises.length) return "Enter the reps for at least one set.";
+      const item = { id: id || LifeStore.uid(), date: v.date, type: v.type, minutes: v.minutes === "" ? "" : Math.max(0, Math.round(num(v.minutes))),
+        notes: v.notes, exercises: v.type === "gym" ? exercises : [], created: w.created || Date.now() };
+      const err = LifeStore.commit((dd) => upsertIn(dd.workouts, item));
+      if (!err) {
+        const beaten = L.records(LifeStore.data.workouts).prs[item.id];
+        if (beaten && beaten.length) {
+          const best = L.records(LifeStore.data.workouts).best;
+          setTimeout(() => toast(`🏆 New PR: ${beaten.map((n) => { const r = best.find((b) => b.name.toLowerCase() === n.toLowerCase()); return r ? `${n} ${kgText(r.kg)}` : n; }).join(", ")}`), 50);
+        }
+      }
+      return err;
+    }, {
+      submitLabel: id ? "Save" : "Save workout",
+      onDelete: id ? () => LifeStore.commit((dd) => removeFrom(dd.workouts, id)) : null,
+      confirmText: "Delete this workout? This can't be undone.",
+    });
+
+    const list = form.querySelector("[data-exercises]");
+    const addExercise = (name) => {
+      name = name.trim();
+      if (!name) return;
+      const existing = [...list.querySelectorAll("[data-ex]")].find((x) => x.dataset.name.toLowerCase() === name.toLowerCase());
+      if (existing) { existing.querySelector("[data-reps]").focus(); return; }
+      list.insertAdjacentHTML("beforeend", exBlock({ name, sets: L.lastSets(d.workouts, name, id) || [{}] }));
+      const block = list.lastElementChild;
+      checkPr(block);
+      const first = block.querySelector("[data-reps]");
+      if (first) first.focus();
+    };
+    // "New PR" on an exercise when its sets beat the best from other workouts
+    const checkPr = (block) => {
+      const r = recordFor(block.dataset.name);
+      const b = L.bestOf({ sets: [...block.querySelectorAll("[data-set]")].map((s) => ({ reps: num(s.querySelector("[data-reps]").value), kg: num(s.querySelector("[data-kg]").value) })) });
+      const beat = r && (b.kg > r.kg + 1e-9 || b.e1 > r.e1 + 1e-9);
+      block.classList.toggle("is-pr", !!beat);
+      block.querySelector("[data-ex-pr]").textContent = beat ? (b.kg > r.kg ? `🏆 New PR ${kgText(b.kg)}` : "🏆 New best 1RM") : "";
+    };
+    const renumber = (block) => block.querySelectorAll(".lf-set-n").forEach((n, i) => { n.textContent = i + 1; });
+    const sync = () => {
+      const type = (form.querySelector("[name=type]:checked") || {}).value;
+      form.querySelector("[data-gym]").hidden = type !== "gym";
+    };
+    list.querySelectorAll("[data-ex]").forEach(checkPr);
+    sync();
+
+    form.addEventListener("change", (e) => {
+      if (e.target.name === "type") return sync();
+      if (e.target.name === "pickExercise") {
+        const v = e.target.value;
+        if (!v) return;
+        e.target.value = ""; // back to "Choose…"
+        if (v === "__new") { form.querySelector("[data-new-ex]").hidden = false; form.newExercise.focus(); }
+        else addExercise(v);
+      }
+    });
+    form.addEventListener("input", (e) => { const block = e.target.closest("[data-ex]"); if (block) checkPr(block); });
+    form.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" && e.target.name === "newExercise") { e.preventDefault(); form.querySelector("[data-add-new]").click(); }
+    });
+    form.addEventListener("click", (e) => {
+      if (e.target.closest("[data-add-new]")) {
+        addExercise(form.newExercise.value);
+        form.newExercise.value = "";
+        form.querySelector("[data-new-ex]").hidden = true;
+        return;
+      }
+      if (e.target.closest("[data-copy-last]")) {
+        lastGym.exercises.forEach((x) => addExercise(x.name));
+        e.target.closest("[data-copy-last]").remove();
+        return;
+      }
+      const block = e.target.closest("[data-ex]");
+      if (!block) return;
+      if (e.target.closest("[data-ex-remove]")) { block.remove(); return; }
+      if (e.target.closest("[data-add-set]")) {
+        // A new set copies the one above it
+        const sets = block.querySelectorAll("[data-set]");
+        const prev = sets[sets.length - 1];
+        const s = prev ? { reps: prev.querySelector("[data-reps]").value, kg: prev.querySelector("[data-kg]").value } : {};
+        block.querySelector("[data-sets]").insertAdjacentHTML("beforeend", setRow(s, sets.length));
+        block.querySelector("[data-sets]").lastElementChild.querySelector("[data-reps]").focus();
+        return checkPr(block);
+      }
+      const rm = e.target.closest("[data-set-remove]");
+      if (rm) {
+        if (block.querySelectorAll("[data-set]").length > 1) rm.closest("[data-set]").remove();
+        else rm.closest("[data-set]").querySelectorAll("input").forEach((i) => { i.value = ""; });
+        renumber(block);
+        checkPr(block);
+      }
+    });
+  }
+
+  function recordsSheet() {
+    const best = L.records(D().workouts).best.filter((r) => r.kg > 0 || r.e1 > 0);
+    openModal("Personal records", best.length ? listCard(best.map((r) => rowEl({
+      action: "", title: esc(r.name),
+      meta: `Best 1RM ~${kgText(Math.round(r.e1 * 2) / 2)} · ${plural(r.sessions, "session")}`,
+      trail: `${kgText(r.kg)}<div class="muted small">${fmtShort(r.kgDate)}</div>`,
+    })), "lf-in-sheet") : `<p class="muted">Log a gym workout with weights to see your records.</p>`);
+  }
+
+  function bodyweightSheet() {
+    const list = D().bodyweight.slice().sort((a, b) => (a.date < b.date ? -1 : 1));
+    const latest = list[list.length - 1];
+    const change = list.length > 1 ? latest.kg - list[0].kg : null;
+    const form = openForm("Bodyweight", `
+      ${latest ? `<div class="lf-goal-hero"><div class="lf-big">${fmtNum(latest.kg)}<span class="lf-unit">kg</span></div>
+        <div class="lf-sub">${fmtDate(latest.date)}${change !== null ? ` · ${change > 0 ? "+" : ""}${fmtNum(Math.round(change * 10) / 10)} kg since ${fmtShort(list[0].date)}` : ""}</div></div>
+        <div class="lf-chart-box" data-bw-chart></div>` : ""}
+      <div class="form-row lf-pair">${field("Weight (kg)", numInput("kg", "", 'min="0" step="0.1" required placeholder="e.g. 72.5"'))}${field("Date", dateInput("date", L.today(), "required"))}</div>
+      ${list.length ? `<div class="lf-list lf-in-sheet">${list.slice().reverse().slice(0, 30).map((b) => rowEl({ action: "", id: b.id, cls: "lf-bw",
+        title: kgText(b.kg), trail: `<span class="muted">${fmtDate(b.date)}</span>` })).join("")}</div><p class="field-hint">Tap an entry to remove it.</p>` : ""}`,
+    (v) => {
+      if (!(num(v.kg) > 0)) return "Enter your weight in kg.";
+      return LifeStore.commit((dd) => {
+        dd.bodyweight = dd.bodyweight.filter((b) => b.date !== v.date); // one entry per day
+        dd.bodyweight.push({ id: LifeStore.uid(), date: v.date, kg: num(v.kg) });
+      });
+    }, { submitLabel: "Add", after: bodyweightSheet });
+    const box = form.querySelector("[data-bw-chart]");
+    if (box && list.length > 1) box.innerHTML = lineChart({ width: box.clientWidth || 480, points: list.map((b) => ({ date: b.date, value: b.kg })), unit: "kg" });
+    form.addEventListener("click", (e) => {
+      const r = e.target.closest(".lf-bw");
+      if (r && confirm("Remove this entry?")) { LifeStore.commit((dd) => removeFrom(dd.bodyweight, r.dataset.id)); bodyweightSheet(); }
+    });
+  }
+
+  Object.assign(ACTIONS, {
+    "add-workout": () => workoutForm(),
+    "edit-workout": (id) => workoutForm(id),
+    "repeat-workout": () => { const last = L.sortWorkouts(D().workouts).pop(); if (last) workoutForm(null, last); },
+    records: recordsSheet,
+    bodyweight: bodyweightSheet,
+  });
+
   // ================= Actions =================
   Object.assign(ACTIONS, {
     menu: (id, el) => {
