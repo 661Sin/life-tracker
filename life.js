@@ -713,6 +713,118 @@
     "open-goal": (id) => goalSheet(id),
   });
 
+  // ---------- School (Te Kura / NZQA standards) ----------
+  const statusTone = (s) => L.isPassed({ status: s }) ? "pos" : s === "Not achieved" ? "neg" : "muted";
+  const currentLevel = (d) => String(Math.max(1, ...d.standards.map((s) => Number(s.level) || 1)));
+
+  PAGES.school = (d) => {
+    const today = L.today();
+    const cr = L.credits(d.standards);
+    const lv = currentLevel(d);
+    const C = cr[lv] || { gained: 0, pending: 0 };
+    const target = Number(d.settings.creditTargets[lv]) || 0;
+    const others = Object.keys(cr).filter((k) => k !== lv).sort()
+      .map((k) => `L${k} ${cr[k].gained}/${Number(d.settings.creditTargets[k]) || 0}`);
+    let html = head({
+      label: `Level ${lv} credits`,
+      big: `${C.gained}<span class="lf-of">/${target}</span>`,
+      bar: target ? C.gained / target : null,
+      sub: [C.pending ? `${C.pending} still to come` : "", ...others].filter(Boolean).join(" · "),
+      primary: ["Add standard", "add-standard"],
+      menu: [["Credit targets…", "credit-targets"]],
+      tap: d.standards.length ? "credit-breakdown" : "",
+    });
+    if (!d.standards.length) return html + emptyCard("No standards yet.");
+
+    const due = L.dueStandards(d.standards, today, 3650);
+    if (due.length) html += section("Due", listCard(due.map((s) => standardRow(s, today, true))));
+
+    const subjects = [...new Set(d.standards.map((s) => s.subject || "Other"))].sort();
+    for (const sub of subjects) {
+      const list = d.standards.filter((s) => (s.subject || "Other") === sub)
+        .sort((a, b) => (Number(a.level) - Number(b.level)) || (a.code || "").localeCompare(b.code || ""));
+      const got = L.sum(list.filter(L.isPassed.bind(L)), (s) => Number(s.credits) || 0);
+      html += section(esc(sub), listCard(list.map((s) => standardRow(s, today, false))), ` <span class="badge">${got} credits</span>`);
+    }
+    return html;
+  };
+
+  function standardRow(s, today, showDue) {
+    const overdue = s.due && s.due < today && !L.isFinished(s);
+    return rowEl({
+      action: "edit-standard", id: s.id, cls: overdue ? "overdue" : "",
+      lead: `<span class="lf-code">L${esc(s.level || 1)}</span>`,
+      title: esc(s.title || s.code),
+      meta: [esc(s.code), plural(Number(s.credits) || 0, "credit"), showDue ? esc(s.subject) : s.due && !L.isFinished(s) ? `due ${fmtShort(s.due)}` : ""].filter(Boolean).join(" · "),
+      trail: showDue ? `<span class="${overdue ? "neg" : ""}">${dueText(s.due, today)}</span>` : `<span class="${statusTone(s.status)}">${esc(s.status || "Not started")}</span>`,
+    });
+  }
+
+  function standardForm(id) {
+    const d = D();
+    const s = id ? LifeStore.get("standards", id) : { code: "", title: "", subject: "", level: currentLevel(d), credits: "", due: "", status: "Not started" };
+    const subjects = [...new Set(d.standards.map((x) => x.subject).filter(Boolean))].sort();
+    const form = openForm(id ? s.code || "Standard" : "Add standard", `
+      ${row2(field("Code", textInput("code", s.code, 'placeholder="e.g. AS91924" autocapitalize="characters"')), field("Credits", numInput("credits", s.credits, 'min="0" step="1" inputmode="numeric"')))}
+      ${field("Title", textInput("title", s.title, 'required placeholder="e.g. Demonstrate understanding of…"'))}
+      ${field("Subject", textInput("subject", s.subject, 'placeholder="e.g. Maths"'))}
+      ${subjects.length ? `<div class="lf-emoji-pick">${subjects.map((x) => `<button type="button" class="chip" data-subject="${esc(x)}">${esc(x)}</button>`).join("")}</div>` : ""}
+      ${row2(fieldDiv("Level", seg("level", [["1", "1"], ["2", "2"], ["3", "3"]], String(s.level || 1))), field("Due", dateInput("due", s.due)))}
+      ${field("Status", select("status", L.STATUSES.map((x) => [x, x]), s.status || "Not started"))}`,
+    (v) => {
+      if (!v.title && !v.code) return "Enter the standard's code or title.";
+      if (v.credits !== "" && !(num(v.credits) >= 0)) return "Credits must be 0 or more.";
+      return LifeStore.commit((dd) => {
+        const cur = id ? dd.standards.find((x) => x.id === id) : { id: LifeStore.uid() };
+        const item = { ...cur, code: v.code.toUpperCase(), title: v.title, subject: v.subject, level: Number(v.level) || 1, credits: num(v.credits), status: v.status };
+        if (v.due) item.due = v.due; else delete item.due;
+        upsertIn(dd.standards, item);
+      });
+    }, {
+      submitLabel: id ? "Save" : "Add standard",
+      onDelete: id ? () => LifeStore.commit((dd) => { removeFrom(dd.standards, id); dd.tasks.forEach((t) => { if (t.standardId === id) delete t.standardId; }); }) : null,
+      confirmText: "Delete this standard? This can't be undone.",
+    });
+    form.addEventListener("click", (e) => { const b = e.target.closest("[data-subject]"); if (b) form.subject.value = b.dataset.subject; });
+  }
+
+  // Tap the credits: gained vs target per level, split into A / M / E
+  function creditBreakdown() {
+    const d = D();
+    const cr = L.credits(d.standards);
+    const levels = Object.keys(cr).sort();
+    openModal("Credits", levels.map((k) => {
+      const c = cr[k], target = Number(d.settings.creditTargets[k]) || 0;
+      const scale = Math.max(target, c.gained, 1);
+      const w = (n) => `${(n / scale) * 100}%`;
+      return `<div class="lf-credit">
+        <div class="lf-goal-top"><span class="lf-goal-title">Level ${k}</span><b>${c.gained}<span class="lf-of"> / ${target}</span></b></div>
+        <div class="lf-stack" role="img" aria-label="Excellence ${c.E}, Merit ${c.M}, Achieved ${c.A} credits">
+          <span class="e" style="width:${w(c.E)}"></span><span class="m" style="width:${w(c.M)}"></span><span class="a" style="width:${w(c.A)}"></span>
+        </div>
+        <div class="lf-legend">
+          <span><i class="e"></i>Excellence <b>${c.E}</b></span><span><i class="m"></i>Merit <b>${c.M}</b></span><span><i class="a"></i>Achieved <b>${c.A}</b></span>
+        </div>
+        <div class="lf-sub">${[c.pending ? `${c.pending} still to come` : "", c.notAchieved ? `${c.notAchieved} not achieved` : "",
+          `Merit or better: ${c.M + c.E}/50 for an endorsement`].filter(Boolean).join(" · ")}</div>
+      </div>`;
+    }).join("") || `<p class="muted">No standards yet.</p>`);
+  }
+
+  function creditTargetsForm() {
+    const t = D().settings.creditTargets;
+    openForm("Credit targets", `
+      <div class="form-row three">${["1", "2", "3"].map((k) => field(`Level ${k}`, numInput("t" + k, t[k], 'min="0" step="1" inputmode="numeric"'))).join("")}</div>`,
+    (v) => LifeStore.commit((dd) => { for (const k of ["1", "2", "3"]) dd.settings.creditTargets[k] = Math.max(0, Math.round(num(v["t" + k]))); }));
+  }
+
+  Object.assign(ACTIONS, {
+    "add-standard": () => standardForm(),
+    "edit-standard": (id) => standardForm(id),
+    "credit-breakdown": creditBreakdown,
+    "credit-targets": creditTargetsForm,
+  });
+
   // ================= Actions =================
   Object.assign(ACTIONS, {
     menu: (id, el) => {
