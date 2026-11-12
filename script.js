@@ -156,6 +156,7 @@ let lastFocused = null; // so focus returns to the button that opened the modal
 function openModal(title, html) {
   if (modal.hidden) lastFocused = document.activeElement;
   modalTitle.textContent = title;
+  modal.querySelector(".modal-box").className = "modal-box"; // drop any special sheet style (e.g. the full check-in sheet)
   modalBody.innerHTML = html;
   if (typeof Pickers !== "undefined") Pickers.enhance(modalBody); // native selects / dates / times → glass pickers
   modal.hidden = false;

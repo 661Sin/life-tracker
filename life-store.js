@@ -20,6 +20,7 @@ function lifeEmptyData() {
     workouts: [],
     bodyweight: [], // { id, date, kg }
     sleep: [],      // { id, date (the morning you woke up), bed: "HH:MM", wake: "HH:MM", quality: 1-5 }
+    checkins: {},   // "Update my day" progress: { "YYYY-MM-DD": step reached } (removed when finished)
     // dayScore: colour thresholds (%) and which parts count, see LifeCalc.dayScore
     settings: { sleepTarget: 8, creditTargets: { 1: 80, 2: 60, 3: 60 }, dayScore: { ...LifeCalc.DAY_SCORE } },
   };
@@ -44,6 +45,7 @@ const LifeStore = {
     d.settings = { ...base.settings, ...(d.settings || {}) };
     d.settings.creditTargets = { ...base.settings.creditTargets, ...(d.settings.creditTargets || {}) };
     d.settings.dayScore = { ...base.settings.dayScore, ...(d.settings.dayScore || {}) };
+    if (!d.checkins || typeof d.checkins !== "object" || Array.isArray(d.checkins)) d.checkins = {};
     for (const h of d.habits) { if (!Array.isArray(h.done)) h.done = []; if (!h.schedule) h.schedule = { type: "daily" }; }
     for (const g of d.goals) if (!Array.isArray(g.updates)) g.updates = [];
     for (const w of d.workouts) if (!Array.isArray(w.exercises)) w.exercises = [];

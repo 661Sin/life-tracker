@@ -1031,6 +1031,40 @@ td.actions { width: 1%; white-space: nowrap; }
 .lf-wheel-score { font-size: 26px; font-weight: 700; margin: 2px 0 4px; }
 .lf-wheel-score .muted { font-size: 16px; font-weight: 500; }
 .lf-update-btn { max-width: none; margin-bottom: 8px; }
+
+/* "Update my day": full glass sheet, one step per screen */
+.modal-box.lf-ci-box { max-width: 620px; height: min(780px, calc(100vh - 32px)); display: flex; flex-direction: column; overflow: hidden; }
+.lf-ci-box .modal-body { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.lf-ci { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 14px; }
+.lf-ci-dots { display: flex; gap: 4px; justify-content: space-between; }
+.lf-ci-dot {
+  flex: 1; display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 4px 0; cursor: pointer;
+  font: inherit; color: var(--text-muted); background: none; border: none; -webkit-tap-highlight-color: transparent;
+}
+.lf-ci-dot span { width: 100%; height: 4px; border-radius: 999px; background: var(--glass-fill-strong); transition: background var(--t-hover) ease; }
+.lf-ci-dot small { font-size: 11px; }
+.lf-ci-dot.past span { background: var(--accent-edge); }
+.lf-ci-dot.on span { background: var(--accent); }
+.lf-ci-dot.on small { color: var(--text); font-weight: 600; }
+.lf-ci-dot:focus-visible { outline: 2px solid var(--accent); border-radius: 8px; }
+.lf-ci-clip { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; margin: 0 -4px; padding: 0 4px; }
+.lf-ci-step { display: flex; flex-direction: column; gap: 16px; padding: 4px 0 8px; }
+.lf-ci-head h3 { margin: 6px 0 0; font-size: 22px; font-weight: 700; letter-spacing: -0.01em; }
+.lf-ci-head p { margin: 6px 0 0; }
+.lf-ci-nav { display: flex; align-items: center; gap: 8px; padding-top: 12px; border-top: 1px solid var(--border); }
+.lf-ci-nav .btn-primary { min-width: 110px; }
+.lf-ci-habit { cursor: pointer; }
+.lf-ci-task { grid-template-columns: auto 1fr auto; }
+.lf-ci-task .btn { white-space: nowrap; }
+.lf-ci-yesno { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.lf-ci-big { font-size: 18px; padding: 18px; border-radius: var(--radius); }
+.lf-ci-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.lf-ci-std { display: grid; grid-template-columns: 1fr minmax(150px, 190px); gap: 12px; align-items: center; padding: 10px 0; border-top: 1px solid var(--border); }
+.lf-ci-summary { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 20px; align-items: center; }
+.lf-ci-wheel { max-width: 280px; width: 100%; margin: 0 auto; }
+.lf-ci-result .lf-big { font-size: 56px; }
+.lf-ci-parts { display: flex; flex-direction: column; gap: 8px; margin-top: 16px; }
+.lf-ci-part { display: grid; grid-template-columns: 70px 1fr auto; gap: 8px; font-size: 14px; padding: 8px 0; border-top: 1px solid var(--border); }
 .lf-in-sheet { background: none; border: none; box-shadow: none; -webkit-backdrop-filter: none; backdrop-filter: none; padding: 0; }
 .lf-in-sheet .lf-row { padding-left: 4px; padding-right: 4px; }
 .lf-in-sheet .lf-row + .lf-row::before { left: 4px; right: 4px; }
@@ -1187,6 +1221,12 @@ td.actions { width: 1%; white-space: nowrap; }
   .lf-wheel-wrap { grid-template-columns: 30px 1fr 30px; }
   .lf-wheel-arrow { width: 30px; height: 30px; }
   .lf-wheel-card { padding: 12px 6px 16px; }
+  .modal:has(.lf-ci-box) { padding: 0; align-items: flex-end; }
+  .modal-box.lf-ci-box { height: calc(100dvh - 20px); max-height: none; border-radius: var(--radius-lg) var(--radius-lg) 0 0; padding-bottom: calc(16px + env(safe-area-inset-bottom)); }
+  .lf-ci-summary { grid-template-columns: 1fr; gap: 8px; }
+  .lf-ci-wheel { max-width: 220px; }
+  .lf-ci-std { grid-template-columns: 1fr; gap: 8px; }
+  .lf-ci-task .btn { padding: 5px 10px; font-size: 12px; }
   .form-row.lf-sleep-times, .form-row.lf-pair { grid-template-columns: 1fr 1fr; }
 
 

@@ -682,11 +682,12 @@
 
   // Tick a task. A repeating one also creates its next copy (unticking
   // removes that copy again if it hasn't been started on).
-  function toggleTask(dd, id) {
+  // day = the date it counts as done on (the check-in passes the day being filled in)
+  function toggleTask(dd, id, day = L.today()) {
     const t = dd.tasks.find((x) => x.id === id);
     const today = L.today();
     if (!t.done) {
-      t.done = today;
+      t.done = day;
       if (t.repeat) {
         const next = { ...t, id: LifeStore.uid(), due: L.nextDue(t.due, t.repeat, today), created: today };
         delete next.done; delete next.nextId;
@@ -1177,11 +1178,12 @@
   // Gym workouts have exercises, each with sets of reps × kg. Picking an
   // exercise you've done before fills in your last sets. Beating a record
   // shows "New PR" on that exercise as you type.
-  function workoutForm(id, preset = null) {
+  // opts.date: log it on that day (check-in); opts.after: run after saving
+  function workoutForm(id, preset = null, opts = {}) {
     const d = D();
     const w = id ? LifeStore.get("workouts", id)
-      : preset ? { ...structuredClone(preset), id: undefined, created: undefined, date: L.today(), notes: "" }
-      : { date: L.today(), type: "gym", minutes: "", notes: "", exercises: [] };
+      : preset ? { ...structuredClone(preset), id: undefined, created: undefined, date: opts.date || L.today(), notes: "" }
+      : { date: opts.date || L.today(), type: "gym", minutes: "", notes: "", exercises: [] };
     const known = L.exerciseNames(d.workouts);
     const lastGym = L.sortWorkouts(d.workouts).reverse().find((x) => x.type === "gym" && (x.exercises || []).length && x.id !== id);
     // Records from every other workout, to spot a new PR while typing
@@ -1241,6 +1243,7 @@
       return err;
     }, {
       submitLabel: id ? "Save" : "Save workout",
+      after: opts.after,
       onDelete: id ? () => LifeStore.commit((dd) => removeFrom(dd.workouts, id)) : null,
       confirmText: "Delete this workout? This can't be undone.",
     });
@@ -1363,6 +1366,274 @@
     records: recordsSheet,
     bodyweight: bodyweightSheet,
   });
+
+  // ---------- Update my day (guided check-in) ----------
+  // A full glass sheet, one step per screen: Sleep → Habits → Plans → Fitness
+  // → School (only if something's due soon) → Summary. Every step can be
+  // skipped. Ticks save straight away; Sleep saves on Next. The step reached is
+  // remembered per day (data.checkins) so closing halfway picks up there.
+  // Works for any past day too (from the wheel), to fill in a missed day.
+  const CI_LABEL = { sleep: "Sleep", habits: "Habits", plans: "Plans", fitness: "Fitness", school: "School", summary: "Summary" };
+  let ci = null; // { date, steps, i, startColour, workoutYes }
+
+  openDayUpdate = (date = L.today()) => {
+    const d = D();
+    if (date > L.today()) return;
+    const schoolDue = L.dueStandards(d.standards, date, 14).length > 0;
+    const steps = ["sleep", "habits", "plans", "fitness", ...(schoolDue ? ["school"] : []), "summary"];
+    const saved = Number(d.checkins[date]) || 0;
+    ci = { date, steps, i: Math.min(saved, steps.length - 1), startColour: L.dayScore(d, date).colour, workoutYes: false };
+    const today = L.today();
+    const body = openModal(date === today ? "Update my day" : `Update ${fmtDay(date)}`, `
+      <div class="lf-ci" data-ci>
+        <div class="lf-ci-dots" role="tablist" aria-label="Steps"></div>
+        <div class="lf-ci-clip"><div class="lf-ci-step" data-ci-step></div></div>
+        <div class="lf-ci-nav">
+          <button type="button" class="btn btn-ghost" data-ci-back>Back</button>
+          <span class="gp-spacer"></span>
+          <button type="button" class="btn" data-ci-skip>Skip</button>
+          <button type="button" class="btn btn-primary" data-ci-next>Next</button>
+        </div>
+      </div>`);
+    body.closest(".modal-box").classList.add("lf-ci-box");
+    wireCheckin(body);
+    drawStep(0);
+  };
+
+  const ciRemember = () => {
+    LifeStore.commit((dd) => {
+      if (ci.steps[ci.i] === "summary") delete dd.checkins[ci.date];
+      else dd.checkins[ci.date] = ci.i;
+      // keep only the last 60 days of unfinished check-ins
+      const keys = Object.keys(dd.checkins).sort();
+      while (keys.length > 60) delete dd.checkins[keys.shift()];
+    });
+  };
+
+  // Redraw the current step; dir = slide direction (1 forward, -1 back, 0 none)
+  function drawStep(dir) {
+    const box = document.querySelector("#modal [data-ci]");
+    if (!box || !ci) return;
+    const step = ci.steps[ci.i];
+    box.querySelector(".lf-ci-dots").innerHTML = ci.steps.map((s, k) =>
+      `<button type="button" class="lf-ci-dot${k === ci.i ? " on" : ""}${k < ci.i ? " past" : ""}" data-ci-go="${k}" role="tab"
+        aria-selected="${k === ci.i}" aria-label="${CI_LABEL[s]}"><span></span><small>${CI_LABEL[s]}</small></button>`).join("");
+    const el = box.querySelector("[data-ci-step]");
+    el.innerHTML = CI_STEPS[step]();
+    Pickers.enhance(el); // time wheels / selects right away (not a moment later)
+    box.querySelector("[data-ci-back]").style.visibility = ci.i === 0 ? "hidden" : "";
+    box.querySelector("[data-ci-skip]").hidden = step === "summary";
+    box.querySelector("[data-ci-next]").textContent = step === "summary" ? "Done" : "Next";
+    if (dir && canAnimate()) {
+      el.animate([{ opacity: 0, transform: `translateX(${dir * 48}px)` }, { opacity: 1, transform: "none" }],
+        { duration: 300, easing: cssVar("--ease-out") || "ease-out" });
+    }
+    if (step === "summary") animateSummary(el);
+  }
+
+  function goStep(k, dir) {
+    ci.i = Math.max(0, Math.min(ci.steps.length - 1, k));
+    ciRemember();
+    drawStep(dir);
+    render();
+  }
+
+  // ---- Step screens ----
+  const ciHead = (title, sub = "") => `<div class="lf-ci-head"><h3>${title}</h3>${sub ? `<p class="muted">${sub}</p>` : ""}</div>`;
+  const CI_STEPS = {
+    sleep() {
+      const d = D();
+      const s = d.sleep.find((x) => x.date === ci.date);
+      const last = d.sleep.slice().sort((a, b) => (a.date < b.date ? 1 : -1))[0];
+      const bed = s ? s.bed : last ? last.bed : "23:00", wake = s ? s.wake : last ? last.wake : "07:00";
+      return `${ciHead(ci.date === L.today() ? "How did you sleep last night?" : `Sleep before ${fmtDay(ci.date)}`)}
+        <div class="form-row lf-pair">${field("Bed", timeInput("ciBed", bed, "required"))}${field("Woke", timeInput("ciWake", wake, "required"))}</div>
+        <div class="lf-quality lf-quality-pick" role="radiogroup" aria-label="Quality">${QUALITY.map(([v, e, t]) =>
+          `<label class="lf-q"><input type="radio" name="ciQuality" value="${v}"${s && String(s.quality) === v ? " checked" : ""}><span>${e}</span><small>${t}</small></label>`).join("")}</div>
+        <div class="preview big" data-ci-hours>Slept <b>${fmtHours(L.sleepHours(bed, wake))}</b></div>`;
+    },
+    habits() {
+      const d = D();
+      const list = d.habits.filter((h) => !h.archived || ci.date < h.archived).filter((h) => L.habitActiveOn(h, ci.date) || ci.date === L.today())
+        .filter((h) => L.isWeekly(h) || L.isScheduled(h, ci.date));
+      return ciHead("Habits", list.length ? "" : "No habits for this day.") + (list.length ? listCard(list.map((h) => {
+        const on = L.isDone(h, ci.date);
+        return rowEl({ action: "", id: h.id, cls: "lf-ci-habit" + (on ? " done" : ""), lead: tick(on, "ci-habit", h.id, `${h.name} done`),
+          title: `${h.emoji ? `<span class="lf-emoji">${esc(h.emoji)}</span>` : ""}${esc(h.name)}`,
+          meta: L.isWeekly(h) ? `${L.weekCount(h, ci.date)}/${L.weeklyTarget(h)} this week` : "" });
+      }), "lf-in-sheet") : "");
+    },
+    plans() {
+      const d = D(), today = L.today();
+      const list = L.sortTasks(d.tasks.filter((t) => t.due === ci.date || (ci.date === today && !t.done && t.due && t.due < today)));
+      return ciHead("Plans", list.length ? "" : "Nothing due.") + (list.length ? `<div class="lf-list lf-in-sheet">${list.map((t) => {
+        const overdue = !t.done && t.due < today && ci.date === today;
+        return `<div class="lf-row lf-ci-task${t.done ? " done" : ""}${overdue ? " overdue" : ""}" data-id="${esc(t.id)}">
+          <span class="lf-lead">${tick(!!t.done, "ci-task", t.id, `${t.title} done`)}</span>
+          <span class="lf-main"><span class="lf-title">${esc(t.title)}</span>${overdue ? `<span class="lf-meta neg">${dueText(t.due, today)}</span>` : ""}</span>
+          ${t.done ? "" : `<button type="button" class="btn btn-sm" data-ci-tomorrow="${esc(t.id)}">Move to tomorrow</button>`}
+        </div>`;
+      }).join("")}</div>` : "");
+    },
+    fitness() {
+      const d = D();
+      const logged = L.sortWorkouts(d.workouts.filter((w) => w.date === ci.date));
+      const last = L.sortWorkouts(d.workouts.filter((w) => w.date !== ci.date)).pop();
+      const loggedList = logged.length ? `<div class="lf-list lf-in-sheet">${logged.map((w) => {
+        const [e, t] = typeOf(w);
+        return rowEl({ action: "", lead: `<span class="lf-big-emoji">${e}</span>`, title: `${t}${w.minutes ? ` · ${w.minutes} min` : ""}`,
+          meta: esc((w.exercises || []).map((x) => x.name).join(", ") || w.notes || "") });
+      }).join("")}</div>` : "";
+      if (!ci.workoutYes) {
+        return `${ciHead(logged.length ? "Workout logged" : "Did you work out?")}${loggedList}
+          <div class="lf-ci-yesno">
+            <button type="button" class="btn lf-ci-big" data-ci-yes>${logged.length ? "Log another" : "Yes"}</button>
+            ${logged.length ? "" : `<button type="button" class="btn lf-ci-big" data-ci-no>No</button>`}
+          </div>`;
+      }
+      return `${ciHead("Quick log")}${loggedList}
+        ${fieldDiv("Type", seg("ciType", Object.entries(TYPES).map(([k, [e, t]]) => [k, `${e} ${t}`]), "gym"))}
+        ${field("Minutes", numInput("ciMinutes", "", 'min="0" step="1" inputmode="numeric" placeholder="e.g. 45"'))}
+        <div class="lf-ci-actions">
+          <button type="button" class="btn" data-ci-save-workout>Save workout</button>
+          ${last ? `<button type="button" class="btn" data-ci-repeat>Repeat last (${typeOf(last)[1]}, ${fmtShort(last.date)})</button>` : ""}
+          <button type="button" class="link" data-ci-full>Log sets × reps…</button>
+        </div>`;
+    },
+    school() {
+      const list = L.dueStandards(D().standards, ci.date, 14);
+      return ciHead("School", list.length ? "Due soon. Update where each one is at." : "Nothing due soon.") +
+        list.map((s) => `<div class="lf-ci-std">
+          <div class="lf-main"><span class="lf-title">${esc(s.title || s.code)}</span><span class="lf-meta${s.due < L.today() ? " neg" : ""}">${esc(s.code)} · ${dueText(s.due)}</span></div>
+          ${select("ciStatus-" + s.id, L.STATUSES.map((x) => [x, x]), s.status || "Not started", `data-ci-status="${esc(s.id)}" aria-label="Status of ${esc(s.code || s.title)}"`)}
+        </div>`).join("");
+    },
+    summary() {
+      const s = L.dayScore(D(), ci.date);
+      const p = s.parts;
+      const word = { good: "Green day", mid: "Orange day", bad: "Red day", none: "Nothing logged yet" }[s.colour] || "";
+      const rowsHtml = [
+        p.habits ? [`Habits`, `${p.habits.done}/${p.habits.total}`, p.habits.pct] : null,
+        p.tasks ? [`Tasks`, `${p.tasks.done}/${p.tasks.total}`, p.tasks.pct] : null,
+        p.sleep ? [`Sleep`, `${fmtHours(p.sleep.hours)} (target ${fmtNum(p.sleep.target)}h)`, p.sleep.pct] : null,
+      ].filter(Boolean).map(([k, v, pc]) => `<div class="lf-ci-part"><span>${k}</span><span class="muted">${v}</span><b>${Math.round(pc)}%</b></div>`).join("");
+      return `<div class="lf-ci-summary">
+          <div class="lf-ci-wheel" data-ci-wheel>${wheelSvg(D(), ci.date.slice(0, 7), { override: { [ci.date]: ci.startColour } })}</div>
+          <div class="lf-ci-result">
+            <div class="stat-label">${relDay(ci.date)}</div>
+            <div class="lf-big lf-score lf-score-${s.colour}">${s.score === null ? "—" : s.score + "%"}</div>
+            <div class="lf-sub">${word}</div>
+            ${rowsHtml ? `<div class="lf-ci-parts">${rowsHtml}</div>` : ""}
+          </div>
+        </div>`;
+    },
+  };
+
+  // Summary: the day's slice starts in its old colour, then lifts out and fades to the new one
+  function animateSummary(el) {
+    const s = L.dayScore(D(), ci.date);
+    const g = el.querySelector(`.lf-slice[data-date="${ci.date}"]`);
+    if (!g) return;
+    const go = () => {
+      g.classList.remove(`wd-${ci.startColour}`);
+      g.classList.add(`wd-${s.colour}`, "sel");
+    };
+    if (!canAnimate()) return go();
+    requestAnimationFrame(() => requestAnimationFrame(go));
+  }
+
+  // Next: save what this step needs (only Sleep has fields to save)
+  function ciNext() {
+    const step = ci.steps[ci.i];
+    if (step === "summary") { ciRemember(); closeModal(); render(); return; }
+    if (step === "sleep") {
+      const box = document.querySelector("#modal [data-ci]");
+      const bed = box.querySelector("[name=ciBed]").value, wake = box.querySelector("[name=ciWake]").value;
+      const q = (box.querySelector("[name=ciQuality]:checked") || {}).value;
+      if (bed && wake) {
+        LifeStore.commit((dd) => {
+          const cur = dd.sleep.find((x) => x.date === ci.date);
+          const item = { id: cur ? cur.id : LifeStore.uid(), date: ci.date, bed, wake, quality: q ? Number(q) : (cur ? cur.quality : null) };
+          dd.sleep = dd.sleep.filter((x) => x.date !== ci.date);
+          dd.sleep.push(item);
+        });
+      }
+    }
+    goStep(ci.i + 1, 1);
+  }
+
+  function wireCheckin(body) {
+    const box = body.querySelector("[data-ci]");
+    const redraw = () => { drawStep(0); render(); };
+    box.addEventListener("click", (e) => {
+      const t = e.target;
+      if (t.closest("[data-ci-next]")) return ciNext();
+      if (t.closest("[data-ci-skip]")) return goStep(ci.i + 1, 1);
+      if (t.closest("[data-ci-back]")) return goStep(ci.i - 1, -1);
+      const dot = t.closest("[data-ci-go]");
+      if (dot) { const k = Number(dot.dataset.ciGo); return goStep(k, Math.sign(k - ci.i)); }
+      const hb = t.closest("[data-action=ci-habit]") || (t.closest(".lf-ci-habit") && t.closest(".lf-ci-habit").querySelector("[data-action=ci-habit]"));
+      if (hb) {
+        LifeStore.commit((dd) => {
+          const h = dd.habits.find((x) => x.id === hb.dataset.id);
+          h.done = h.done.includes(ci.date) ? h.done.filter((x) => x !== ci.date) : [...h.done, ci.date].sort();
+        });
+        return redraw();
+      }
+      const tk = t.closest("[data-action=ci-task]");
+      if (tk) { LifeStore.commit((dd) => toggleTask(dd, tk.dataset.id, ci.date)); return redraw(); }
+      const mv = t.closest("[data-ci-tomorrow]");
+      if (mv) {
+        LifeStore.commit((dd) => { dd.tasks.find((x) => x.id === mv.dataset.ciTomorrow).due = L.addDays(L.today(), 1); });
+        toast("Moved to tomorrow");
+        return redraw();
+      }
+      if (t.closest("[data-ci-no]")) return goStep(ci.i + 1, 1);
+      if (t.closest("[data-ci-yes]")) { ci.workoutYes = true; return drawStep(0); }
+      if (t.closest("[data-ci-save-workout]")) {
+        const type = (box.querySelector("[name=ciType]:checked") || {}).value || "gym";
+        const m = box.querySelector("[name=ciMinutes]").value;
+        LifeStore.commit((dd) => dd.workouts.push({ id: LifeStore.uid(), date: ci.date, type, minutes: m === "" ? "" : Math.max(0, Math.round(num(m))), notes: "", exercises: [], created: Date.now() }));
+        toast("Workout saved");
+        ci.workoutYes = false;
+        return goStep(ci.i + 1, 1);
+      }
+      if (t.closest("[data-ci-repeat]")) {
+        const last = L.sortWorkouts(D().workouts.filter((w) => w.date !== ci.date)).pop();
+        LifeStore.commit((dd) => dd.workouts.push({ ...structuredClone(last), id: LifeStore.uid(), date: ci.date, notes: "", created: Date.now() }));
+        toast(`Repeated: ${typeOf(last)[1]}`);
+        ci.workoutYes = false;
+        return goStep(ci.i + 1, 1);
+      }
+      if (t.closest("[data-ci-full]")) {
+        // The full workout form, then back to the check-in on the next step
+        const date = ci.date, next = ci.i + 1;
+        LifeStore.commit((dd) => { dd.checkins[date] = next; });
+        return workoutForm(null, null, { date, after: () => openDayUpdate(date) });
+      }
+    });
+    box.addEventListener("change", (e) => {
+      const st = e.target.dataset && e.target.dataset.ciStatus;
+      if (st) {
+        LifeStore.commit((dd) => { dd.standards.find((x) => x.id === st).status = e.target.value; });
+        return render();
+      }
+      if (e.target.name === "ciBed" || e.target.name === "ciWake") {
+        const out = box.querySelector("[data-ci-hours]");
+        out.innerHTML = `Slept <b>${fmtHours(L.sleepHours(box.querySelector("[name=ciBed]").value, box.querySelector("[name=ciWake]").value))}</b>`;
+      }
+    });
+    // Swipe left = Next, right = Back (not while dragging a time wheel or list)
+    let sx = null, sy = 0;
+    box.addEventListener("pointerdown", (e) => { sx = e.target.closest(".gp, input, .lf-wheel-svg") ? null : e.clientX; sy = e.clientY; });
+    box.addEventListener("pointerup", (e) => {
+      if (sx === null) return;
+      const dx = e.clientX - sx, dy = e.clientY - sy;
+      sx = null;
+      if (Math.abs(dx) < 60 || Math.abs(dx) < Math.abs(dy) * 1.5) return;
+      if (dx < 0) ciNext(); else if (ci.i > 0) goStep(ci.i - 1, -1);
+    });
+  }
 
   // ================= Actions =================
   Object.assign(ACTIONS, {
