@@ -81,33 +81,75 @@ const LifeStore = {
   },
 };
 
-// ---------- Backup (PnL + Life in one file) ----------
-// File shape: { app: "lifeTracker", version: 2, exported, pnl: {...}, life: {...} }.
-// Older PnL-only backups (just the PnL data object) still import: they replace
-// PnL and leave Life untouched.
+// ---------- Backup (PnL + Life + Journal in one file) ----------
+// File shape: { app: "lifeTracker", version: 3, exported, pnl, life, journal, media? }.
+//   media (optional, photos / audio): [{ id, type, data ("data:..." text) }]
+// Older files still import: version 2 (PnL + Life) leaves Journal untouched;
+// PnL-only backups (just the PnL data object) replace PnL only. A backup
+// without media keeps the photos / audio already in this browser.
 const Backup = {
-  exportText() {
-    return JSON.stringify({ app: "lifeTracker", version: 2, exported: LifeCalc.today(), pnl: Store.data, life: LifeStore.data }, null, 2);
-  },
+  hasJournal: () => typeof JournalStore !== "undefined" && !!JournalStore.data,
 
-  download() {
-    const blob = new Blob([this.exportText()], { type: "application/json" });
+  async build(withMedia) {
+    const out = { app: "lifeTracker", version: 3, exported: LifeCalc.today(), pnl: Store.data, life: LifeStore.data };
+    if (this.hasJournal()) out.journal = JournalStore.data;
+    if (withMedia && this.hasJournal()) {
+      const keep = JournalStore.allMediaIds();
+      const rows = (await Media.all()).filter((r) => keep.has(r.id));
+      out.media = [];
+      for (const r of rows) out.media.push({ id: r.id, type: r.type, data: await Media.toDataUrl(r.blob) });
+    }
+    return JSON.stringify(out, null, withMedia ? 0 : 2);
+  },
+  exportText() { return JSON.stringify({ app: "lifeTracker", version: 3, exported: LifeCalc.today(), pnl: Store.data, life: LifeStore.data, journal: this.hasJournal() ? JournalStore.data : undefined }, null, 2); },
+
+  save(text, withMedia) {
+    const blob = new Blob([text], { type: "application/json" });
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
-    a.download = `life-tracker-backup-${LifeCalc.today()}.json`;
+    a.download = `life-tracker-backup-${LifeCalc.today()}${withMedia ? "-with-media" : ""}.json`;
     document.body.appendChild(a);
     a.click();
     a.remove();
     setTimeout(() => URL.revokeObjectURL(a.href), 1000);
   },
 
+  // Export: when there are Journal photos / audio, asks whether to include them
+  async download() {
+    let sizes = { photos: 0, audio: 0, count: 0 };
+    if (this.hasJournal() && JournalStore.allMediaIds().size) sizes = await Media.sizes().catch(() => sizes);
+    if (!sizes.count) return this.save(await this.build(false), false);
+    const B = JournalCalc.bytes;
+    const body = openModal("Export backup", `
+      <div class="jr-choices">
+        <button type="button" class="jr-choice" data-bk="media"><b>With photos &amp; audio</b><span>${B((sizes.photos + sizes.audio) * 1.34)}</span></button>
+        <button type="button" class="jr-choice" data-bk="text"><b>Text only</b><span>${B(this.exportText().length)}</span></button>
+      </div>`);
+    body.addEventListener("click", async (e) => {
+      const b = e.target.closest("[data-bk]");
+      if (!b) return;
+      const withMedia = b.dataset.bk === "media";
+      body.querySelectorAll("[data-bk]").forEach((x) => { x.disabled = true; });
+      b.querySelector("span").textContent = "Preparing…";
+      try { this.save(await this.build(withMedia), withMedia); closeModal(); }
+      catch (err) { alert("Couldn't export: " + err.message); closeModal(); }
+    });
+  },
+
   // Returns a short description of what was restored
-  importText(text) {
+  async importText(text) {
     const d = JSON.parse(text); // throws if the file isn't valid JSON
-    if (d && d.app === "lifeTracker" && (d.pnl || d.life)) {
-      if (d.pnl) Store.importText(JSON.stringify(d.pnl));
-      if (d.life) LifeStore.importData(d.life);
-      return d.pnl && d.life ? "PnL and Life" : d.pnl ? "PnL" : "Life";
+    if (d && d.app === "lifeTracker" && (d.pnl || d.life || d.journal)) {
+      const parts = [];
+      if (d.pnl) { Store.importText(JSON.stringify(d.pnl)); parts.push("PnL"); }
+      if (d.life) { LifeStore.importData(d.life); parts.push("Life"); }
+      if (d.journal && this.hasJournal()) { JournalStore.importData(d.journal); parts.push("Journal"); }
+      if (Array.isArray(d.media) && d.media.length && this.hasJournal()) {
+        await Media.clear();
+        for (const m of d.media) await Media.put(await Media.fromDataUrl(m.data), m.id);
+        parts.push(`${d.media.length} photo${d.media.length === 1 ? "" : "s"} / audio`);
+      }
+      return parts.join(", ").replace(/, ([^,]*)$/, " and $1");
     }
     Store.importText(text); // old PnL-only backup (throws if it isn't one)
     return "PnL";
@@ -122,15 +164,10 @@ const Backup = {
       const file = input.files[0];
       if (!file) return;
       if (!confirm("Replace your current data with this backup? Export a backup of the current data first if you might need it.")) return;
-      file.text().then((text) => {
-        try {
-          const what = this.importText(text);
-          document.dispatchEvent(new CustomEvent("lifetracker:imported"));
-          alert(`Backup imported (${what}).`);
-        } catch (err) {
-          alert("Couldn't import that file: " + err.message);
-        }
-      });
+      file.text().then((text) => this.importText(text)).then((what) => {
+        document.dispatchEvent(new CustomEvent("lifetracker:imported"));
+        alert(`Backup imported (${what}).`);
+      }).catch((err) => alert("Couldn't import that file: " + err.message));
     });
     input.click();
   },

@@ -4,7 +4,7 @@
 // you on the same tab and the browser's back button moves between tabs.
 // A hash can also name a sub-page after a slash, e.g. #pnl/sales.
 
-const TABS = ["pnl", "life", "other"];
+const TABS = ["pnl", "life", "journal"];
 
 // ---------- Liquid Glass motion ----------
 // Timings and easing are read from the CSS variables at the top of style.css.
@@ -117,6 +117,7 @@ let currentTab = null;
 
 function showTab() {
   let current = location.hash.replace("#", "").split("/")[0];
+  if (current === "other") current = "journal"; // old name of the Journal tab
   if (!TABS.includes(current)) current = TABS[0]; // default to PnL
   const oldPage = currentTab && currentTab !== current ? document.getElementById("page-" + currentTab) : null;
   const dir = oldPage ? Math.sign(TABS.indexOf(current) - TABS.indexOf(currentTab)) : 0;
@@ -171,12 +172,6 @@ function closeModal() {
   modalBody.innerHTML = "";
   if (lastFocused && document.contains(lastFocused)) lastFocused.focus();
 }
-
-// Placeholder "Add" buttons (Life / Other) open it
-document.querySelectorAll("[data-open-modal]").forEach((btn) => {
-  btn.addEventListener("click", () =>
-    openModal("Add to " + btn.dataset.openModal, '<p class="modal-muted">Nothing here yet.</p>'));
-});
 
 // X button, Cancel buttons and the backdrop close it
 modal.addEventListener("click", (e) => {
