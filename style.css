@@ -1578,6 +1578,83 @@ td.actions { width: 1%; white-space: nowrap; }
 }
 
 /* =====================================================================
+   Phone polish (iPhone), 2026-11-12
+   ===================================================================== */
+
+/* Safe areas: with viewport-fit=cover the page runs under the notch / Dynamic
+   Island and the home bar. env(safe-area-inset-*) is how much each edge is
+   covered (0 on PCs), so content is pushed clear of them. */
+main {
+  padding-top: calc(32px + env(safe-area-inset-top));
+  padding-right: max(32px, env(safe-area-inset-right));
+  padding-left: calc(88px + env(safe-area-inset-left));
+}
+.side-tabs { left: env(safe-area-inset-left); }
+.modal {
+  padding: max(16px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right))
+           max(16px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
+}
+.modal-box { max-height: calc(100vh - max(16px, env(safe-area-inset-top)) - max(16px, env(safe-area-inset-bottom))); }
+.jr-mini { right: max(24px, calc(env(safe-area-inset-right) + 12px)); bottom: max(24px, calc(env(safe-area-inset-bottom) + 12px)); }
+
+@media (max-width: 700px) {
+  main {
+    padding: calc(20px + env(safe-area-inset-top)) max(16px, env(safe-area-inset-right))
+             calc(120px + env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
+  }
+  body.jr-mini-on main { padding-bottom: calc(190px + env(safe-area-inset-bottom)); }
+  /* Floating bottom bar and mini-player: clear of the home bar and the rounded sides */
+  .side-tabs, .side-tabs:hover, .side-tabs:focus-within {
+    left: max(16px, env(safe-area-inset-left)); right: max(16px, env(safe-area-inset-right));
+  }
+  .jr-mini { left: max(16px, env(safe-area-inset-left)); right: max(16px, env(safe-area-inset-right)); bottom: calc(86px + env(safe-area-inset-bottom)); }
+  /* Full-height bottom sheets stop below the status bar */
+  .modal:has(.lf-ci-box), .modal:has(.jr-view-box) { padding: env(safe-area-inset-top) 0 0; }
+  .modal-box.lf-ci-box { height: calc(100dvh - 20px - env(safe-area-inset-top)); }
+  .modal-box.jr-view-box { max-height: calc(100dvh - 20px - env(safe-area-inset-top)); }
+  .gp-pop.gp-sheet { max-height: calc(100dvh - 40px - env(safe-area-inset-top)); overflow-y: auto; }
+}
+
+/* Touch screens (and the phone layout) */
+@media (max-width: 700px), (pointer: coarse) {
+  /* iPhone zooms the page into any text box under 16px: keep them all at 16px */
+  input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=file]), textarea, select { font-size: 16px !important; }
+
+  /* Tap targets at least 44 × 44px. Small controls keep their look but get an
+     invisible ::after that reaches 44px (it only grows, never shrinks). */
+  .chip, .btn, .link, .lf-chip, .lf-tick, .modal-close, .lf-wheel-arrow, .jr-mini-btn, .gp-field { position: relative; }
+  .chip::after, .btn-sm::after, .btn-icon::after, .link::after, .lf-chip::after, .lf-tick::after,
+  .modal-close::after, .lf-wheel-arrow::after, .jr-mini-btn::after {
+    content: ""; position: absolute;
+    top: min(0px, calc((100% - 44px) / 2)); bottom: min(0px, calc((100% - 44px) / 2));
+    left: min(0px, calc((100% - 44px) / 2)); right: min(0px, calc((100% - 44px) / 2));
+  }
+  .btn:not(.btn-sm):not(.btn-icon) { min-height: 44px; }
+  .subnav-link { padding: 12px 16px; }
+  .menu-item { min-height: 44px; }
+  .seg span { padding: 12px 18px; }
+  .jr-switch-row { min-height: 44px; }
+  .gp-field { min-height: 44px; }
+  .jr-tag-filter .gp-field { min-height: 32px; }
+  .jr-tag-filter .gp-field::after { content: ""; position: absolute; inset: -6px 0; }
+  .field .jr-newtag input { width: 130px; }
+  .jr-search { padding: 9px 14px; }
+  /* Sliders (seek, volume): a taller touch strip and a bigger knob */
+  .jr-seek { height: 44px; }
+  .jr-seek::-webkit-slider-thumb { width: 22px; height: 22px; margin-top: -8.5px; }
+  .jr-seek::-moz-range-thumb { width: 22px; height: 22px; }
+  .jr-vol { width: 200px; max-width: 60%; }
+
+  /* No double-tap zoom anywhere (pinch zoom still works), no grey tap flash */
+  html { touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
+  /* Buttons, tabs, rows and the day wheel: no text selection or "copy" bubble on a long press */
+  button, .btn, .chip, .tab, .subnav-link, .lf-row, .hist-row, .acct-tile, .jr-card, .jr-choice, .jr-mini,
+  .lf-wheel, .lf-wheel-svg, .seg, .menu-item, .tbl tr, .gp-field, .lf-q, label.jr-switch-row, .update-toast {
+    -webkit-user-select: none; user-select: none; -webkit-touch-callout: none;
+  }
+}
+
+/* =====================================================================
    Fallbacks and accessibility
    ===================================================================== */
 /* No backdrop-filter support: solid dark panels instead of see-through ones */

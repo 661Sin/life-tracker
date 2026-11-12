@@ -4,12 +4,12 @@
 // serves them from there (fast). Your data is NOT here: it stays in the
 // browser's localStorage / IndexedDB.
 //
-// Updates: VERSION changes on every commit (the git pre-commit hook rewrites
-// the line below). A new VERSION = a "new" service worker: the browser installs
+// Updates: VERSION is changed on every commit (Claude updates the line below
+// to the date and time before committing). A new VERSION = a "new" service worker: the browser installs
 // it in the background, the page shows "Update available, tap to refresh",
 // and only after that tap does it take over (so nothing changes mid-use).
 
-const VERSION = "2026-11-12.221759";
+const VERSION = "2026-11-12.221949";
 const CACHE = `life-tracker-${VERSION}`;
 const FONTS = "life-tracker-fonts";
 
