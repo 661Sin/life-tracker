@@ -1255,6 +1255,36 @@ td.actions { width: 1%; white-space: nowrap; }
 .jr-pickbtn > span:not(.jr-cover) { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .jr-pickcover { color: var(--text-muted); }
 
+/* Mini-player: docked while a Journal song plays on another tab */
+.jr-mini {
+  position: fixed; right: 24px; bottom: 24px; z-index: 50; width: 340px; max-width: calc(100vw - 32px);
+  display: grid; grid-template-columns: 1fr auto auto; align-items: center; gap: 4px; padding: 8px 8px 10px; overflow: hidden;
+  border-radius: var(--radius); background: var(--glass-pop);
+  -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--glass-border-strong); box-shadow: var(--glass-highlight), var(--glass-shadow);
+}
+.jr-mini[hidden] { display: none; }
+.jr-mini-open {
+  font: inherit; color: var(--text); background: none; border: none; cursor: pointer; text-align: left; min-width: 0;
+  display: flex; align-items: center; gap: 10px; padding: 2px 6px 2px 2px; border-radius: var(--radius-sm);
+  -webkit-tap-highlight-color: transparent;
+}
+.jr-mini-open:focus-visible, .jr-mini-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.jr-mini-text { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.jr-mini-text b { font-size: 14px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.jr-mini-text span { font-size: 12px; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.jr-mini-btn {
+  width: 40px; height: 40px; border-radius: 50%; padding: 0; display: grid; place-items: center; cursor: pointer;
+  background: none; border: none; color: var(--text); -webkit-tap-highlight-color: transparent;
+  transition: background var(--t-hover) ease, transform var(--t-hover) var(--ease-spring);
+}
+.jr-mini-btn:hover { background: var(--glass-fill-hover); }
+.jr-mini-btn:active { transform: scale(0.88); transition-duration: var(--t-press); }
+.jr-mini-btn svg { width: 22px; height: 22px; fill: var(--text); }
+.jr-mini-x svg { width: 16px; height: 16px; fill: none; stroke: var(--text-muted); stroke-width: 2; stroke-linecap: round; }
+.jr-mini-bar { position: absolute; left: 14px; right: 14px; bottom: 4px; height: 2px; border-radius: var(--radius-pill); background: var(--glass-fill-strong); overflow: hidden; }
+.jr-mini-bar span { display: block; height: 100%; background: var(--accent); transform-origin: 0 50%; transform: scaleX(0); }
+
 /* Masonry grid: columns filled by journal.js (shortest first) */
 .jr-grid { display: flex; gap: 12px; align-items: flex-start; }
 .jr-grid > .empty { flex: 1; }
@@ -1453,6 +1483,8 @@ td.actions { width: 1%; white-space: nowrap; }
   .jr-song-empty .jr-song-top { grid-template-columns: auto 1fr; }
   .jr-song-empty .jr-song-top > .btn { grid-column: 1 / -1; }
   .jr-filepick { grid-template-columns: 1fr; }
+  .jr-mini { left: 16px; right: 16px; width: auto; max-width: none; bottom: calc(86px + env(safe-area-inset-bottom)); }
+  body.jr-mini-on main { padding-bottom: 190px; }
   .lf-q small { display: none; }
   .lf-wheel-wrap { grid-template-columns: 30px 1fr 30px; }
   .lf-wheel-arrow { width: 30px; height: 30px; }
@@ -1507,12 +1539,12 @@ td.actions { width: 1%; white-space: nowrap; }
    ===================================================================== */
 /* No backdrop-filter support: solid dark panels instead of see-through ones */
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
-  .card, .side-tabs, .subnav, .modal-box, .gp-pop, .gp-pop.gp-sheet, .jr-play, .jr-full-close { background: var(--glass-solid); }
+  .card, .side-tabs, .subnav, .modal-box, .gp-pop, .gp-pop.gp-sheet, .jr-play, .jr-full-close, .jr-mini { background: var(--glass-solid); }
 }
 
 /* "Reduce transparency" turned on: more solid panels */
 @media (prefers-reduced-transparency: reduce) {
-  .card, .side-tabs, .subnav, .modal-box, .gp-pop, .gp-pop.gp-sheet, .jr-play, .jr-full-close {
+  .card, .side-tabs, .subnav, .modal-box, .gp-pop, .gp-pop.gp-sheet, .jr-play, .jr-full-close, .jr-mini {
     background: var(--glass-solid);
     -webkit-backdrop-filter: none;
     backdrop-filter: none;

@@ -885,6 +885,54 @@
     if (PARTS.mini) PARTS.mini();
   }
 
+  // ================= Mini-player =================
+  // On other tabs, an uploaded song that's playing (or paused part-way) gets a
+  // small glass player docked above the bottom bar (bottom right on PC).
+  // Tap the song to go back to the Journal; × stops it.
+  const mini = document.getElementById("jr-mini");
+  function renderMini() {
+    if (!mini) return;
+    const s = player.songId && JournalStore.get("songs", player.songId);
+    const show = !!s && !onJournal && !player.closed && (!audio.paused || audio.currentTime > 0);
+    if (!show) {
+      if (!mini.hidden) {
+        mini.hidden = true;
+        document.body.classList.remove("jr-mini-on");
+      }
+      return;
+    }
+    if (mini.dataset.song !== s.id) {
+      mini.dataset.song = s.id;
+      mini.innerHTML = `
+        <button type="button" class="jr-mini-open" data-mini="open" aria-label="Open Journal">
+          ${coverHtml(s, "jr-cover jr-cover-sm")}
+          <span class="jr-mini-text"><b>${esc(s.title || "Song of the week")}</b>${s.artist ? `<span>${esc(s.artist)}</span>` : ""}</span>
+        </button>
+        <button type="button" class="jr-mini-btn" data-mini="toggle" aria-label="Pause"></button>
+        <button type="button" class="jr-mini-btn jr-mini-x" data-mini="close" aria-label="Stop">${ICON.close}</button>
+        <span class="jr-mini-bar" aria-hidden="true"><span></span></span>`;
+      mini.querySelectorAll("img[data-media]").forEach(loadImg);
+      mini.querySelectorAll("img[data-src]").forEach(loadImg);
+    }
+    const t = mini.querySelector("[data-mini=toggle]");
+    const label = audio.paused ? "Play" : "Pause";
+    if (t.getAttribute("aria-label") !== label || !t.innerHTML) { t.innerHTML = audio.paused ? ICON.play : ICON.pause; t.setAttribute("aria-label", label); }
+    mini.querySelector(".jr-mini-bar span").style.transform = `scaleX(${audio.duration ? audio.currentTime / audio.duration : 0})`;
+    if (mini.hidden) {
+      mini.hidden = false;
+      document.body.classList.add("jr-mini-on");
+      if (canAnimate()) mini.animate([{ opacity: 0, transform: "translateY(16px) scale(0.96)" }, { opacity: 1, transform: "none" }],
+        { duration: 320, easing: cssVar("--ease-spring") || "ease-out" });
+    }
+  }
+  if (mini) mini.addEventListener("click", (e) => {
+    const b = e.target.closest("[data-mini]");
+    if (!b) return;
+    if (b.dataset.mini === "open") location.hash = "#journal";
+    if (b.dataset.mini === "toggle") { if (audio.paused) audio.play().catch(() => {}); else audio.pause(); }
+    if (b.dataset.mini === "close") { audio.pause(); player.closed = true; renderMini(); }
+  });
+
   // ================= Actions =================
   const ACTIONS = {
     menu: (id, el) => {
@@ -950,7 +998,7 @@
   });
 
   // ================= Drawing =================
-  const PARTS = { song: renderSong, mini: null };
+  const PARTS = { song: renderSong, mini: renderMini };
   function render() {
     PARTS.song();
     renderHead();
