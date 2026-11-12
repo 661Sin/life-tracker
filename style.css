@@ -1194,6 +1194,67 @@ td.actions { width: 1%; white-space: nowrap; }
 .jr-search svg { width: 16px; height: 16px; flex-shrink: 0; fill: none; stroke: var(--text-muted); stroke-width: 2; stroke-linecap: round; }
 .jr-search input { font: inherit; font-size: 14px; color: var(--text); background: none; border: none; outline: none; width: 100%; min-width: 0; padding: 0; }
 
+/* Song of the week: "now playing" card */
+.jr-song { padding: 18px; display: flex; flex-direction: column; gap: 14px; }
+.jr-song-top { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 16px; }
+.jr-cover {
+  width: 96px; height: 96px; flex-shrink: 0; border-radius: var(--radius-sm); overflow: hidden; display: grid; place-items: center;
+  background: var(--card); border: 1px solid var(--glass-border); box-shadow: var(--glass-shadow-sm);
+}
+.jr-cover img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.jr-cover-empty { background: var(--accent-soft); border-color: var(--accent-edge); }
+.jr-cover-empty svg, .jr-cover svg { width: 40%; height: 40%; fill: none; stroke: var(--accent); stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.jr-cover-sm { width: 40px; height: 40px; border-radius: 10px; box-shadow: none; }
+.jr-song-info { min-width: 0; display: flex; flex-direction: column; gap: 4px; border-radius: var(--radius-sm); }
+.jr-song-info[role=button] { cursor: pointer; }
+.jr-song-info:focus-visible { outline: 2px solid var(--glass-border-strong); outline-offset: 4px; }
+.jr-song-title { font-size: 22px; font-weight: 700; letter-spacing: -0.01em; line-height: 1.2; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.jr-song-title.muted-title { color: var(--text-muted); font-weight: 600; }
+.jr-song-artist { font-size: 15px; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.jr-song-play {
+  width: 56px; height: 56px; border-radius: 50%; padding: 0; cursor: pointer; display: grid; place-items: center; flex-shrink: 0;
+  background: var(--glass-fill-strong); border: 1px solid var(--glass-border-strong); box-shadow: var(--glass-highlight), var(--glass-shadow-sm);
+  -webkit-tap-highlight-color: transparent;
+  transition: transform var(--t-hover) var(--ease-spring), background var(--t-hover) ease;
+}
+.jr-song-play svg { width: 24px; height: 24px; fill: var(--text); }
+.jr-song-play.on { background: var(--accent-soft); border-color: var(--accent-edge); }
+.jr-song-play:not(.on) svg { margin-left: 3px; }
+.jr-song-play:hover { background: var(--glass-fill-hover); }
+.jr-song-play.on:hover { background: var(--accent-soft); }
+.jr-song-play:active { transform: scale(0.9); transition-duration: var(--t-press); }
+.jr-song-play:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.jr-seekrow { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 12px; }
+.jr-time { font-size: 12px; color: var(--text-muted); font-variant-numeric: tabular-nums; min-width: 34px; }
+.jr-time:last-child { text-align: right; }
+.jr-seek { -webkit-appearance: none; appearance: none; width: 100%; height: 22px; margin: 0; background: none; cursor: pointer; }
+.jr-seek::-webkit-slider-runnable-track { height: 5px; border-radius: var(--radius-pill); background: var(--glass-fill-strong); }
+.jr-seek::-moz-range-track { height: 5px; border-radius: var(--radius-pill); background: var(--glass-fill-strong); }
+.jr-seek::-moz-range-progress { height: 5px; border-radius: var(--radius-pill); background: var(--accent); }
+.jr-seek::-webkit-slider-thumb { -webkit-appearance: none; width: 15px; height: 15px; margin-top: -5px; border-radius: 50%; background: var(--text); box-shadow: var(--glass-shadow-sm); }
+.jr-seek::-moz-range-thumb { width: 15px; height: 15px; border: none; border-radius: 50%; background: var(--text); }
+.jr-seek:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: var(--radius-pill); }
+.jr-song-embed:empty { display: none; }
+.jr-song-embed iframe { display: block; width: 100%; border: 0; border-radius: var(--radius-sm); background: var(--bg); }
+.jr-song-note { font-size: 14px; line-height: 1.5; color: var(--text-muted); white-space: pre-wrap; overflow-wrap: anywhere; padding-left: 12px; border-left: 2px solid var(--accent-edge); }
+.jr-song-back { align-self: flex-start; font-size: 13px; text-decoration: none; }
+.jr-prev-weeks { margin: 10px 0 0; }
+.jr-prev-weeks .lf-list { margin-bottom: 0; }
+.jr-song-row .lf-lead { min-width: 40px; }
+
+/* Song form: audio / cover file buttons */
+.jr-filepick { display: grid; grid-template-columns: 1fr auto; gap: 10px; }
+.jr-filepick[hidden], [data-src-link][hidden] { display: none; }
+.jr-pickbtn {
+  position: relative; display: flex; align-items: center; gap: 10px; min-width: 0; cursor: pointer; font-size: 14px;
+  padding: 10px 14px; border-radius: var(--radius-sm); background: var(--bg); border: 1px dashed var(--glass-border-strong);
+}
+.jr-pickbtn:hover { background: var(--card); }
+.jr-pickbtn:focus-within { border-color: var(--accent); }
+.jr-pickbtn > svg { width: 22px; height: 22px; flex-shrink: 0; fill: none; stroke: var(--accent); stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.jr-pickbtn > span:not(.jr-cover) { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.jr-pickcover { color: var(--text-muted); }
+
 /* Masonry grid: columns filled by journal.js (shortest first) */
 .jr-grid { display: flex; gap: 12px; align-items: flex-start; }
 .jr-grid > .empty { flex: 1; }
@@ -1382,6 +1443,16 @@ td.actions { width: 1%; white-space: nowrap; }
   .modal:has(.jr-view-box) { padding: 0; align-items: flex-end; }
   .modal-box.jr-view-box { max-height: calc(100dvh - 20px); border-radius: var(--radius-lg) var(--radius-lg) 0 0; padding-bottom: calc(16px + env(safe-area-inset-bottom)); }
   .jr-embed { border-radius: 10px; }
+  .jr-song { padding: 14px; gap: 12px; }
+  .jr-song-top { gap: 12px; }
+  .jr-cover { width: 72px; height: 72px; }
+  .jr-cover-sm { width: 40px; height: 40px; }
+  .jr-song-title { font-size: 18px; }
+  .jr-song-artist { font-size: 14px; }
+  .jr-song-play { width: 48px; height: 48px; }
+  .jr-song-empty .jr-song-top { grid-template-columns: auto 1fr; }
+  .jr-song-empty .jr-song-top > .btn { grid-column: 1 / -1; }
+  .jr-filepick { grid-template-columns: 1fr; }
   .lf-q small { display: none; }
   .lf-wheel-wrap { grid-template-columns: 30px 1fr 30px; }
   .lf-wheel-arrow { width: 30px; height: 30px; }

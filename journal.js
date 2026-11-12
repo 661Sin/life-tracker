@@ -597,6 +597,294 @@
       ${persisted === false ? `<div class="field-hint">The browser may clear photos if space runs low. Export a backup with photos to be safe.</div>` : ""}`;
   }
 
+  // ================= Song of the week =================
+  // A "now playing" card. A link plays in that site's own player (loaded only
+  // when Play is pressed); an uploaded file plays in our glass player through
+  // ONE shared <audio> element that lives outside the page, so it keeps
+  // playing on other tabs (see the mini-player below).
+  const songUi = { current: null, embedFor: null };   // song shown in the card; song whose embed is open
+  const audio = new Audio();
+  audio.preload = "metadata";
+  const player = { songId: null, closed: false };     // song loaded into the <audio>; mini-player dismissed
+
+  const thisWeek = () => J.weekStart(J.today());
+  const weekLabel = (w) => {
+    const end = J.addDays(w, 6);
+    return w.slice(0, 7) === end.slice(0, 7) ? `${Number(w.slice(8))}–${fmtShort(end)}` : `${fmtShort(w)} – ${fmtShort(end)}`;
+  };
+  const shownSong = () => {
+    const d = D();
+    if (songUi.current && !JournalStore.get("songs", songUi.current)) songUi.current = null;
+    return songUi.current ? JournalStore.get("songs", songUi.current) : J.songForWeek(d.songs, thisWeek());
+  };
+  const isPlaying = (s) => !!s && (s.source === "file" ? player.songId === s.id && !audio.paused : songUi.embedFor === s.id);
+  const coverHtml = (s, cls = "jr-cover") => s && (s.coverMedia || s.cover)
+    ? `<span class="${cls}"><img ${s.coverMedia ? `data-media="${esc(s.coverMedia)}"` : `data-src="${esc(s.cover)}" referrerpolicy="no-referrer"`} alt=""></span>`
+    : `<span class="${cls} jr-cover-empty">${ICON.music}</span>`;
+
+  function renderSong() {
+    const box = slot("song");
+    const keep = box.querySelector(".jr-song-embed iframe");   // an open embed survives redraws
+    const s = shownSong();
+    const week = thisWeek();
+    const others = J.songsByWeek(D().songs).filter((x) => !s || x.id !== s.id);
+    let card;
+    if (!s) {
+      card = `<div class="card jr-song jr-song-empty">
+        <div class="jr-song-top">
+          ${coverHtml(null)}
+          <div class="jr-song-info"><div class="stat-label">Song of the week · ${weekLabel(week)}</div><div class="jr-song-title muted-title">Nothing yet</div></div>
+          ${btn("Add song", "song-add")}
+        </div></div>`;
+    } else {
+      const playing = isPlaying(s);
+      const current = s.week === week;
+      card = `<div class="card jr-song" data-song="${esc(s.id)}">
+        <div class="jr-song-top">
+          ${coverHtml(s)}
+          <div class="jr-song-info" data-action="song-edit" data-id="${esc(s.id)}" role="button" tabindex="0" aria-label="Edit song">
+            <div class="stat-label">${current ? "Song of the week" : "Week of"} · ${weekLabel(s.week)}</div>
+            <div class="jr-song-title">${esc(s.title || "Untitled")}</div>
+            ${s.artist ? `<div class="jr-song-artist">${esc(s.artist)}</div>` : ""}
+          </div>
+          <button type="button" class="jr-song-play${playing ? " on" : ""}" data-action="song-play" data-id="${esc(s.id)}" aria-label="${playing ? "Pause" : "Play"}">${playing ? ICON.pause : ICON.play}</button>
+        </div>
+        ${s.source === "file" ? `<div class="jr-seekrow">
+            <span class="jr-time" data-t-now>${J.clock(player.songId === s.id ? audio.currentTime : 0)}</span>
+            <input type="range" class="jr-seek" min="0" max="1000" step="1" value="${player.songId === s.id && audio.duration ? Math.round((audio.currentTime / audio.duration) * 1000) : 0}" aria-label="Seek" data-seek>
+            <span class="jr-time" data-t-len>${player.songId === s.id && audio.duration ? J.clock(audio.duration) : "–:––"}</span>
+          </div>` : ""}
+        <div class="jr-song-embed" data-embed></div>
+        ${s.note ? `<div class="jr-song-note">${esc(s.note)}</div>` : ""}
+        ${!current ? `<button type="button" class="link jr-song-back" data-action="song-week">Back to this week</button>` : ""}
+      </div>`;
+    }
+    const list = others.length ? collapsedList(others) : "";
+    box.innerHTML = card + list;
+    if (s && songUi.embedFor === s.id && s.link && s.link.embed) {
+      const holder = box.querySelector("[data-embed]");
+      if (keep) holder.appendChild(keep); else holder.innerHTML = songEmbed(s);
+    } else songUi.embedFor = null;
+    lazy(box);
+    box.querySelectorAll("img[data-media]").forEach(loadImg);
+  }
+  function collapsedList(songs) {
+    const open = slot("song").querySelector(".jr-prev-weeks[open]") ? " open" : "";
+    return `<details class="history lf-collapse jr-prev-weeks"${open}><summary>Previous weeks</summary>
+      <div class="card lf-list">${songs.map((x) => `
+        <div class="lf-row jr-song-row" data-action="song-pick" data-id="${esc(x.id)}" role="button" tabindex="0">
+          <span class="lf-lead">${coverHtml(x, "jr-cover jr-cover-sm")}</span>
+          <span class="lf-main"><span class="lf-title">${esc(x.title || "Untitled")}</span><span class="lf-meta">${esc(x.artist || (x.link ? x.link.site : "Uploaded"))}</span></span>
+          <span class="lf-trail"><span class="muted">${fmtShort(x.week)}</span></span>
+        </div>`).join("")}</div></details>`;
+  }
+  function songEmbed(s) {
+    const l = s.link;
+    const h = l.height || (l.provider === "youtube" ? null : 152);
+    return `<iframe src="${esc(l.embed)}" title="${esc(s.title || l.site)}" style="${h ? `height:${h}px` : "aspect-ratio:16/9"}"
+      allow="autoplay; encrypted-media; picture-in-picture; fullscreen; clipboard-write" allowfullscreen loading="lazy"
+      referrerpolicy="strict-origin-when-cross-origin"></iframe>`;
+  }
+
+  // ---- Playing ----
+  async function playSong(id) {
+    const s = JournalStore.get("songs", id);
+    if (!s) return;
+    if (s.source === "link") {
+      songUi.embedFor = songUi.embedFor === id ? null : id;   // Play opens the site's player; again closes it
+      if (songUi.embedFor) audio.pause();
+      return renderSong();
+    }
+    songUi.embedFor = null;
+    if (player.songId !== id) {
+      const url = await Media.url(s.audio);
+      if (!url) return toast("This song's file is missing (restore a backup with audio).");
+      player.songId = id;
+      audio.src = url;
+    }
+    player.closed = false;
+    if (audio.paused) audio.play().catch(() => {}); else audio.pause();
+    setMediaSession(s);
+  }
+  // Lock-screen / headphone controls on phones
+  function setMediaSession(s) {
+    if (!("mediaSession" in navigator) || !window.MediaMetadata) return;
+    const meta = { title: s.title || "Song of the week", artist: s.artist || "", artwork: [] };
+    const set = (src) => { if (src) meta.artwork = [{ src, sizes: "512x512" }]; navigator.mediaSession.metadata = new MediaMetadata(meta); };
+    if (s.coverMedia) Media.url(s.coverMedia).then(set); else set(s.cover);
+    navigator.mediaSession.setActionHandler("play", () => audio.play());
+    navigator.mediaSession.setActionHandler("pause", () => audio.pause());
+  }
+  // Keep the card's button, seek bar and times in step with the audio
+  function syncPlayer() {
+    const card = slot("song").querySelector(`.jr-song[data-song="${player.songId}"]`);
+    if (card) {
+      const b = card.querySelector(".jr-song-play");
+      b.classList.toggle("on", !audio.paused);
+      b.innerHTML = audio.paused ? ICON.play : ICON.pause;
+      b.setAttribute("aria-label", audio.paused ? "Play" : "Pause");
+      const seek = card.querySelector("[data-seek]");
+      if (seek && !seek.matches(":active")) seek.value = audio.duration ? Math.round((audio.currentTime / audio.duration) * 1000) : 0;
+      card.querySelector("[data-t-now]").textContent = J.clock(audio.currentTime);
+      if (audio.duration) card.querySelector("[data-t-len]").textContent = J.clock(audio.duration);
+    }
+    if (PARTS.mini) PARTS.mini();
+  }
+  ["play", "pause", "timeupdate", "loadedmetadata", "ended", "emptied"].forEach((ev) => audio.addEventListener(ev, syncPlayer));
+  root.addEventListener("input", (e) => {
+    if (!e.target.matches("[data-seek]")) return;
+    const card = e.target.closest(".jr-song");
+    if (card.dataset.song !== player.songId || !audio.duration) return;
+    audio.currentTime = (e.target.value / 1000) * audio.duration;
+  });
+  // Pressing the seek bar of a song that isn't loaded yet starts it
+  root.addEventListener("pointerdown", (e) => {
+    const seek = e.target.closest && e.target.closest("[data-seek]");
+    if (seek && seek.closest(".jr-song").dataset.song !== player.songId) playSong(seek.closest(".jr-song").dataset.song);
+  });
+
+  // ---- Song form ----
+  function songInfoFrom(link, info) {
+    if (!info) return { title: link && link.provider === "apple" ? J.titleFromPath(link.id) : "", artist: "", cover: "" };
+    if (link.provider === "youtube") return { ...J.splitSongTitle(info.title, info.author), cover: info.thumb };
+    if (link.provider === "soundcloud") {
+      const t = info.author ? info.title.replace(new RegExp(`\\s+by\\s+${info.author.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, "i"), "") : info.title;
+      return { title: t, artist: info.author, cover: info.thumb };
+    }
+    return { title: info.title, artist: link.provider === "spotify" ? "" : info.author, cover: info.thumb };
+  }
+
+  function songForm(id) {
+    const s = id ? JournalStore.get("songs", id) : null;
+    let source = s ? s.source : "link";
+    let audioFile = null, coverFile = null, link = s && s.link ? s.link : null, info = null;
+    let auto = { title: "", artist: "" };
+    const html = `
+      <div class="seg" data-source>${[["link", "Link"], ["file", "Audio file"]].map(([v, t]) =>
+        `<label><input type="radio" name="source" value="${v}"${v === source ? " checked" : ""}><span>${t}</span></label>`).join("")}</div>
+      <div data-src-link>
+        ${field("Link", `<input name="url" type="url" inputmode="url" autocomplete="off" placeholder="YouTube, Spotify, SoundCloud or Apple Music" value="${esc(s && s.url ? s.url : "")}">`)}
+        <div class="jr-preview" data-preview>${link ? previewHtml(link, null) : ""}</div>
+      </div>
+      <div data-src-file class="jr-filepick">
+        <label class="jr-pickbtn">${ICON.music}<span data-audio-name>${esc(s && s.audioName ? s.audioName : "Choose audio (mp3, m4a)")}</span>
+          <input type="file" accept="audio/*,.mp3,.m4a,.aac,.wav" class="jr-file" data-audio-file></label>
+        <label class="jr-pickbtn jr-pickcover"><span class="jr-cover jr-cover-sm" data-cover-prev>${s && s.coverMedia ? `<img data-media="${esc(s.coverMedia)}" alt="">` : ICON.photo}</span><span>Cover (optional)</span>
+          <input type="file" accept="image/*" class="jr-file" data-cover-file></label>
+      </div>
+      ${row2(field("Song", textInput("title", s ? s.title : "", 'maxlength="120" autocomplete="off"')), field("Artist", textInput("artist", s ? s.artist : "", 'maxlength="120" autocomplete="off"')))}
+      ${field("Week of", `<input name="week" type="date" required value="${esc(s ? s.week : thisWeek())}">`)}
+      ${field("Why I like it", `<textarea name="note" rows="3">${esc(s ? s.note : "")}</textarea>`)}`;
+
+    const form = openForm(s ? "Edit song" : "Song of the week", html, async (v) => {
+      if (!v.week) return "Pick the week.";
+      const week = J.weekStart(v.week);
+      const entry = { week, source, title: v.title, artist: v.artist, note: v.note };
+      let dropMedia = [];
+      if (source === "link") {
+        link = J.parseLink(v.url);
+        if (!link || !link.embed) return "Paste a YouTube, Spotify, SoundCloud or Apple Music link.";
+        if (!info || info.url !== link.url) info = await LinkInfo.fetch(link).then((x) => x && { ...x, url: link.url });
+        const got = songInfoFrom(link, info);
+        Object.assign(entry, { url: link.url, link, cover: got.cover || "", audio: null, audioName: "", coverMedia: null,
+          title: entry.title || got.title || link.site, artist: entry.artist || got.artist });
+        if (s) dropMedia = JournalStore.mediaOf(s);
+      } else {
+        if (!audioFile && !(s && s.audio)) return "Choose an audio file.";
+        if (audioFile && !/^audio\//.test(audioFile.type) && !/\.(mp3|m4a|aac|wav)$/i.test(audioFile.name)) return "That file isn't audio.";
+        Object.assign(entry, { url: "", link: null, cover: "" });
+        if (audioFile) {
+          entry.audio = await Media.put(audioFile);
+          entry.audioName = audioFile.name;
+          if (s && s.audio) dropMedia.push(s.audio);
+          if (!entry.title) entry.title = audioFile.name.replace(/\.[^.]+$/, "").replace(/[_]+/g, " ");
+        }
+        if (coverFile) {
+          const c = await Media.resizeImage(coverFile, 800, 0.8);
+          entry.coverMedia = await Media.put(c.blob);
+          if (s && s.coverMedia) dropMedia.push(s.coverMedia);
+        }
+      }
+      const clash = D().songs.find((x) => x.week === week && (!s || x.id !== s.id));
+      if (clash && !confirm(`Replace "${clash.title || "the song"}" as the song for the week of ${fmtShort(week)}?`)) {
+        if (entry.audio && entry.audio !== (s && s.audio)) Media.del(entry.audio);
+        return "Pick another week.";
+      }
+      let newId = s ? s.id : JournalStore.uid();
+      const error = JournalStore.commit((d) => {
+        if (clash) d.songs = d.songs.filter((x) => x.id !== clash.id);
+        if (s) { const i = d.songs.findIndex((x) => x.id === s.id); d.songs[i] = { ...d.songs[i], ...entry }; }
+        else d.songs.push({ id: newId, created: Date.now(), ...entry });
+      });
+      if (error) return error;
+      if (clash) dropMedia.push(...JournalStore.mediaOf(clash));
+      if (s && player.songId === s.id && (source === "link" || entry.audio !== s.audio)) stopAudio();
+      Media.del(dropMedia).catch(() => {});
+      songUi.current = week === thisWeek() ? null : newId;
+    }, {
+      onDelete: s ? () => {
+        const error = JournalStore.commit((d) => { d.songs = d.songs.filter((x) => x.id !== s.id); });
+        if (!error) {
+          if (player.songId === s.id) stopAudio();
+          if (songUi.current === s.id) songUi.current = null;
+          Media.del(JournalStore.mediaOf(s)).catch(() => {});
+        }
+        return error;
+      } : null,
+    });
+
+    // Link / file switch
+    const showSource = () => {
+      form.querySelector("[data-src-link]").hidden = source !== "link";
+      form.querySelector("[data-src-file]").hidden = source !== "file";
+    };
+    form.addEventListener("change", (e) => {
+      if (e.target.name === "source") { source = e.target.value; showSource(); }
+      if (e.target.matches("[data-audio-file]") && e.target.files[0]) {
+        audioFile = e.target.files[0];
+        form.querySelector("[data-audio-name]").textContent = audioFile.name;
+        if (!form.title.value) form.title.value = audioFile.name.replace(/\.[^.]+$/, "").replace(/[_]+/g, " ");
+      }
+      if (e.target.matches("[data-cover-file]") && e.target.files[0]) {
+        coverFile = e.target.files[0];
+        const u = URL.createObjectURL(coverFile);
+        form.querySelector("[data-cover-prev]").innerHTML = `<img src="${u}" alt="">`;
+      }
+    });
+    showSource();
+    form.querySelectorAll("img[data-media]").forEach(loadImg);
+
+    // Link preview fills in song / artist (only fields still empty or filled by us)
+    const prev = form.querySelector("[data-preview]");
+    let timer = null, seq = 0;
+    const update = () => {
+      const l = J.parseLink(form.url.value);
+      link = l;
+      prev.innerHTML = l ? previewHtml(l, null) : "";
+      if (!l) return;
+      const mine = ++seq;
+      LinkInfo.fetch(l).then((x) => {
+        if (mine !== seq) return;
+        info = x && { ...x, url: l.url };
+        const got = songInfoFrom(l, info);
+        if (info) prev.innerHTML = previewHtml(l, info);
+        if (got.title && (!form.title.value || form.title.value === auto.title)) form.title.value = auto.title = got.title;
+        if (got.artist && (!form.artist.value || form.artist.value === auto.artist)) form.artist.value = auto.artist = got.artist;
+      });
+    };
+    form.url.addEventListener("input", () => { clearTimeout(timer); timer = setTimeout(update, 350); });
+    form.url.addEventListener("paste", () => setTimeout(update, 0));
+    if (!s) form.url.focus();
+  }
+
+  function stopAudio() {
+    audio.pause();
+    audio.removeAttribute("src");
+    audio.load();
+    player.songId = null;
+    if (PARTS.mini) PARTS.mini();
+  }
+
   // ================= Actions =================
   const ACTIONS = {
     menu: (id, el) => {
@@ -620,6 +908,17 @@
     storage: () => storageSheet(),
     export: () => Backup.download(),
     import: () => Backup.chooseAndImport(),
+    "song-add": () => songForm(null),
+    "song-edit": (id) => songForm(id),
+    "song-play": (id) => playSong(id),
+    "song-pick": (id) => {           // replay a previous week's song in the card
+      songUi.current = id;
+      songUi.embedFor = null;
+      renderSong();
+      playSong(id);
+      window.scrollTo({ top: root.getBoundingClientRect().top + window.scrollY - 20, behavior: canAnimate() ? "smooth" : "auto" });
+    },
+    "song-week": () => { songUi.current = null; songUi.embedFor = null; renderSong(); },
   };
   function closeMenus() {
     root.querySelectorAll(".menu:not([hidden])").forEach((m) => {
@@ -651,7 +950,7 @@
   });
 
   // ================= Drawing =================
-  const PARTS = { song: () => {}, head: renderHead, filters: renderFilters, grid: renderGrid };
+  const PARTS = { song: renderSong, mini: null };
   function render() {
     PARTS.song();
     renderHead();
@@ -665,7 +964,11 @@
   const readHash = () => { onJournal = location.hash.replace("#", "").split("/")[0] === "journal"; return onJournal; };
   // The grid can only measure itself while visible: redraw when shown or resized if the column count changed
   const refit = () => { if (onJournal && colCount() && colCount() !== grid.n) renderGrid(); };
-  window.addEventListener("hashchange", () => { if (readHash()) requestAnimationFrame(refit); });
+  window.addEventListener("hashchange", () => {
+    if (readHash()) requestAnimationFrame(refit);
+    else if (songUi.embedFor) { songUi.embedFor = null; renderSong(); }   // a site's player stops when you leave
+    if (PARTS.mini) PARTS.mini();
+  });
   let resizeTimer = null;
   window.addEventListener("resize", () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(refit, 150); });
   document.addEventListener("lifetracker:imported", () => { JournalStore.load(); render(); });
