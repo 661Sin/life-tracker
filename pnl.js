@@ -536,7 +536,7 @@
     const rows = data.transfers.slice().sort((a, b) => (a.date < b.date ? 1 : -1)).map((t) => {
       const isAdjust = t.type === "adjust";
       const kind = !isAdjust ? (isDeposit(t) ? "Deposit" : "Transfer")
-        : t.cashCount ? "Cash count"
+        : t.cashCount ? "Balance set"
         : t.amount < 0 ? "Spent"
         : t.accountId === BANK_ID ? "Received" : "Added";
       const note = [t.from ? "From " + esc(t.from) : "", esc(t.note)].filter(Boolean).join(" · ");
@@ -572,9 +572,9 @@
       </div>
       <div class="panels">
         ${balanceCard("Cash", cash, "Sales, orders and expenses use Cash unless you pick Bank.",
-          btn("Spend", "spend-money") + btn("Add money", "add-money", "", "btn-primary"))}
+          btn("Set balance", "set-balance", CASH_ID) + btn("Spend", "spend-money") + btn("Add money", "add-money", "", "btn-primary"))}
         ${balanceCard("Bank", bank, "Deposit cash, log transfers people send you, and money spent from the bank.",
-          btn("Spend", "bank-spend") + btn("Received transfer", "bank-receive") + btn("Deposit cash", "bank-deposit", "", "btn-primary"))}
+          btn("Set balance", "set-balance", BANK_ID) + btn("Spend", "bank-spend") + btn("Received transfer", "bank-receive") + btn("Deposit cash", "bank-deposit", "", "btn-primary"))}
       </div>
       <h3 class="group-title">Money in and out</h3>` +
       table([{ label: "Date" }, { label: "Account" }, { label: "Type" }, { label: "Note" }, { label: "Amount", num: true }, { label: "" }],
@@ -1089,19 +1089,23 @@
     });
   }
 
-  function cashCountForm() {
-    const balance = Calc.balances(Store.data)[CASH_ID] || 0;
-    const form = openForm("Cash count", `
-      <p class="muted">Count the cash you actually have. The difference from the tracker's Cash balance is logged as an adjustment, so the two match.</p>
-      <div class="preview"><span>Cash balance in tracker <b>${money(balance)}</b></span></div>
-      ${row(field("Cash counted", moneyInput("counted", "", "required")), field("Date", dateInput("date", Calc.today(), "required")))}
+  // "Set balance" (Cash or Bank): enter what you actually have now; the
+  // difference is saved as one adjustment (flagged cashCount), so history and
+  // profits stay intact and deleting that entry undoes it.
+  function setBalanceForm(accountId) {
+    const balance = Calc.balances(Store.data)[accountId] || 0;
+    const name = accountName(accountId);
+    const form = openForm(`Set ${name} balance`, `
+      <p class="muted">Enter how much you actually have in ${esc(name)} right now. The difference from the tracker's balance is saved as one adjustment, so the two match. Delete that entry under "Money in and out" to undo it.</p>
+      <div class="preview"><span>${esc(name)} balance in tracker <b>${money(balance)}</b></span></div>
+      ${row(field(`${esc(name)} you have now`, moneyInput("counted", "", "required")), field("Date", dateInput("date", Calc.today(), "required")))}
       <div class="preview" data-preview></div>`,
     (v) => {
       const diff = Calc.round2(num(v.counted) - balance);
       if (diff === 0) return "That matches the tracker already, so nothing needs adjusting.";
-      const item = { id: Store.uid(), type: "adjust", cashCount: true, accountId: CASH_ID, amount: diff, date: v.date, note: `Counted ${money(num(v.counted))}` };
+      const item = { id: Store.uid(), type: "adjust", cashCount: true, accountId, amount: diff, date: v.date, note: `Balance set to ${money(num(v.counted))}` };
       return Store.commit((d) => d.transfers.push(item));
-    }, { submitLabel: "Log adjustment" });
+    }, { submitLabel: "Set balance" });
     const preview = form.querySelector("[data-preview]");
     form.addEventListener("input", () => {
       const v = formValues(form);
@@ -1237,7 +1241,7 @@
       if (isUsedAccount(id)) return alert("This account has entries linked to it. Move or delete those first.");
       confirmDelete("account", "accounts", id);
     },
-    "cash-count": cashCountForm,
+    "set-balance": (id) => setBalanceForm(id),
     "set-stock": (id) => setStockForm(id),
     "edit-stock-adj": stockAdjForm,
     "delete-stock-adj": (id) => confirmDelete("stock adjustment", "stockAdjustments", id),
