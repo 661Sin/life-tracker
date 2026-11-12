@@ -157,13 +157,15 @@ function openModal(title, html) {
   if (modal.hidden) lastFocused = document.activeElement;
   modalTitle.textContent = title;
   modalBody.innerHTML = html;
+  if (typeof Pickers !== "undefined") Pickers.enhance(modalBody); // native selects / dates / times → glass pickers
   modal.hidden = false;
-  const first = modalBody.querySelector("input:not([type=hidden]), select, textarea");
+  const first = modalBody.querySelector("input:not([type=hidden]):not(.gp-value):not([type=checkbox]):not([type=radio]), textarea");
   (first || modal.querySelector(".modal-close")).focus();
   return modalBody;
 }
 
 function closeModal() {
+  if (typeof Pickers !== "undefined") Pickers.close(false, true);
   modal.hidden = true;
   modalBody.innerHTML = "";
   if (lastFocused && document.contains(lastFocused)) lastFocused.focus();
