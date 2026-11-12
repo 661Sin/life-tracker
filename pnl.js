@@ -606,6 +606,8 @@
             <button type="button" class="btn btn-ghost btn-icon" data-action="acct-menu" aria-label="More options" aria-haspopup="true">⋯</button>
             <div class="menu card" hidden>
               <button type="button" class="menu-item" data-action="set-balance">Set balance…</button>
+              <button type="button" class="menu-item" data-action="export">Export backup</button>
+              <button type="button" class="menu-item" data-action="import">Import backup…</button>
             </div>
           </div>
         </div>
@@ -619,15 +621,7 @@
       <div class="chips">${chip("", "All")}${chip(CASH_ID, "Cash")}${chip(BANK_ID, "Bank")}</div>` +
       (shown.length ? historyList(shown, acc) : empty(acc ? `Nothing in or out of ${esc(accountName(acc))} yet.` : "Nothing added, taken out or moved yet.")) +
       (moves.length > shown.length ? `<div class="show-more">${btn(`Show more (${moves.length - shown.length} left)`, "acct-more")}</div>` : "") +
-      (corrections.length ? `<h3 class="group-title">Balance corrections</h3>` + historyList(corrections, acc) : "") +
-      `<h3 class="group-title">Backup</h3>
-      <div class="card backup">
-        <p class="muted">Your data is saved in this browser only. Export a backup file now and then, and import it to restore your data or move it to another device.</p>
-        <div class="section-actions">
-          ${btn("Export backup", "export")}
-          <label class="btn">Import backup<input type="file" accept=".json,application/json" id="pnl-import" hidden></label>
-        </div>
-      </div>`;
+      (corrections.length ? `<h3 class="group-title">Balance corrections</h3>` + historyList(corrections, acc) : "");
   };
 
   // ================= Forms =================
@@ -1365,33 +1359,11 @@
       return moneyForm(null, id);
     },
     "delete-transfer": (id) => confirmDelete("entry", "transfers", id),
-    export: () => {
-      const blob = new Blob([Store.exportText()], { type: "application/json" });
-      const a = document.createElement("a");
-      a.href = URL.createObjectURL(blob);
-      a.download = `life-tracker-pnl-backup-${Calc.today()}.json`;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      setTimeout(() => URL.revokeObjectURL(a.href), 1000);
-    },
+    // One backup file holds both PnL and Life (Backup in life-store.js)
+    export: () => Backup.download(),
+    import: () => Backup.chooseAndImport(),
   };
-
-  function importFile(input) {
-    const file = input.files[0];
-    input.value = "";
-    if (!file) return;
-    if (!confirm("Replace ALL current PnL data with this backup? Export a backup of the current data first if you might need it.")) return;
-    file.text().then((text) => {
-      try {
-        Store.importText(text);
-        render();
-        alert("Backup imported.");
-      } catch (err) {
-        alert("Couldn't import that file: " + err.message);
-      }
-    });
-  }
+  document.addEventListener("lifetracker:imported", () => render());
 
   root.addEventListener("click", (e) => {
     const b = e.target.closest("[data-action]");
@@ -1422,8 +1394,6 @@
     if (e.target.dataset.filter) {
       spentFilter[e.target.dataset.filter] = e.target.value;
       render();
-    } else if (e.target.id === "pnl-import") {
-      importFile(e.target);
     }
   });
 

@@ -57,9 +57,9 @@
     <section class="page" id="page-life">
       <header class="page-header">
         <h1>Life</h1>
-        <button class="btn" data-open-modal="Life">Add</button>
       </header>
-      <div class="content-area"></div>
+      <!-- Filled in by life.js: sub-tabs (Today, Habits, Plans, ...) and their content -->
+      <div id="life-root"></div>
     </section>
 
     <section class="page" id="page-other">
@@ -90,5 +90,9 @@
   <script src="pnl-calc.js"></script>
   <script src="pnl-store.js"></script>
   <script src="pnl.js"></script>
+  <!-- Life: same pattern (calculations, storage + combined backup, screens) -->
+  <script src="life-calc.js"></script>
+  <script src="life-store.js"></script>
+  <script src="life.js"></script>
 </body>
 </html>
