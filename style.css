@@ -481,6 +481,10 @@ label.btn { display: inline-block; }
 .tbl td { padding: 12px 14px; border-bottom: 1px solid var(--border); vertical-align: top; }
 .tbl tr:last-child td { border-bottom: none; }
 .tbl tr.overdue td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
+/* Tap a row to open it (edit sheet with Delete at the bottom) */
+.tbl tr.tap { cursor: pointer; -webkit-tap-highlight-color: transparent; transition: background var(--t-hover) ease; }
+.tbl tr.tap:hover { background: var(--card-hover); }
+.tbl tr.tap:focus-visible { outline: 2px solid var(--glass-border-strong); outline-offset: -2px; }
 .row-actions { display: flex; gap: 4px; justify-content: flex-end; flex-wrap: wrap; }
 td.actions { width: 1%; white-space: nowrap; }
 
@@ -511,6 +515,7 @@ td.actions { width: 1%; white-space: nowrap; }
 .field input:focus, .field select:focus, .field textarea:focus, .bill input:focus { outline: none; border-color: var(--accent); }
 .form-error { color: var(--accent); font-size: 14px; }
 .form-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.form-extra { display: flex; flex-wrap: wrap; gap: 8px; padding-top: 12px; border-top: 1px solid var(--border); }
 .preview {
   display: flex;
   flex-wrap: wrap;

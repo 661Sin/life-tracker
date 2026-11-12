@@ -57,19 +57,29 @@
   // ================= HTML building blocks =================
   const btn = (label, action, id = "", cls = "") =>
     `<button type="button" class="btn ${cls}" data-action="${action}"${id ? ` data-id="${esc(id)}"` : ""}>${label}</button>`;
-  const rowActions = (items) => `<div class="row-actions">${items.map(([label, action, id, cls]) => btn(label, action, id, "btn-sm " + (cls || "btn-ghost"))).join("")}</div>`;
-  const sectionHead = (title, actions = "") => `<div class="section-head"><h2>${title}</h2><div class="section-actions">${actions}</div></div>`;
+  // ⋯ menu: items = [[label, action, id?]]
+  const moreMenu = (items) => !items.length ? "" : `
+    <div class="menu-wrap">
+      <button type="button" class="btn btn-ghost btn-icon" data-action="menu" aria-label="More options" aria-haspopup="true" aria-expanded="false">⋯</button>
+      <div class="menu card" hidden>${items.map(([label, action, id]) =>
+        `<button type="button" class="menu-item" data-action="${action}"${id ? ` data-id="${esc(id)}"` : ""}>${label}</button>`).join("")}</div>
+    </div>`;
+  // Page title with ⋯ (secondary actions) and the page's one orange action
+  const sectionHead = (title, primary = "", menu = []) =>
+    `<div class="section-head"><h2>${title}</h2><div class="section-actions">${moreMenu(menu)}${primary}</div></div>`;
   const stat = (label, value, sub = "", cls = "") =>
     `<div class="card stat"><div class="stat-label">${label}</div><div class="stat-value ${cls}">${value}</div>${sub ? `<div class="stat-sub">${sub}</div>` : ""}</div>`;
   const muted = (text) => (text ? `<div class="muted">${text}</div>` : "");
   const badge = (text, cls = "") => `<span class="badge ${cls}">${text}</span>`;
   const empty = (text) => `<div class="card empty">${text}</div>`;
 
-  // cols: [{ label, num? }], rows: [{ cells: [html...], cls? }]
+  // cols: [{ label, num? }], rows: [{ cells: [html...], cls?, action?, id? }]
+  // A row with an action is tapped to open it (no Edit / Delete buttons on rows).
   function table(cols, rows, emptyText) {
     if (!rows.length) return empty(emptyText);
     const head = cols.map((c) => `<th class="${c.num ? "num" : ""}">${c.label}</th>`).join("");
-    const body = rows.map((r) => `<tr class="${r.cls || ""}">${r.cells.map((cell, i) =>
+    const body = rows.map((r) => `<tr class="${r.cls || ""}${r.action ? " tap" : ""}"${r.action
+      ? ` data-action="${r.action}" data-id="${esc(r.id)}" tabindex="0" role="button"` : ""}>${r.cells.map((cell, i) =>
       `<td data-label="${cols[i].label}" class="${cols[i].num ? "num" : ""}${cols[i].label ? "" : " actions"}"><div class="cell">${cell}</div></td>`).join("")}</tr>`).join("");
     return `<div class="card table-card"><table class="tbl"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div>`;
   }
@@ -98,11 +108,14 @@
   // Opens a form in the shared modal. onSubmit(values, form) returns an error
   // message to show, or nothing on success (then the modal closes and the page redraws).
   // opts.onDelete: adds a Delete button at the bottom (asks first), e.g. when editing an entry.
+  // opts.extra: [[label, fn]] more buttons in the sheet (e.g. "Mark received…"), shown above the main buttons.
   function openForm(title, fieldsHtml, onSubmit, opts = {}) {
     const body = openModal(title, `
       <form class="form">
         ${fieldsHtml}
         <div class="form-error" hidden></div>
+        ${opts.extra && opts.extra.length ? `<div class="form-extra">${opts.extra.map(([label], i) =>
+          `<button type="button" class="btn btn-sm" data-form-extra="${i}">${label}</button>`).join("")}</div>` : ""}
         <div class="form-actions">
           ${opts.onDelete ? `<button type="button" class="btn btn-ghost danger form-delete" data-form-delete>Delete</button>` : ""}
           <button type="button" class="btn" data-close-modal>Cancel</button>
@@ -125,10 +138,15 @@
       render();
       if (opts.after) opts.after();
     });
+    form.addEventListener("click", (e) => {
+      const x = e.target.closest("[data-form-extra]");
+      if (x) opts.extra[Number(x.dataset.formExtra)][1]();
+    });
     const del = form.querySelector("[data-form-delete]");
     if (del) del.addEventListener("click", () => {
-      if (!confirm(`Delete this ${opts.deleteWhat || "entry"}? This can't be undone.`)) return;
+      if (!opts.skipConfirm && !confirm(opts.confirmText || `Delete this ${opts.deleteWhat || "entry"}? This can't be undone.`)) return;
       const error = opts.onDelete();
+      if (error === false) return; // cancelled (onDelete asked its own question)
       if (error) { errorBox.textContent = error; errorBox.hidden = false; return; }
       closeModal();
       render();
@@ -172,7 +190,7 @@
 
     return `
       <button type="button" class="btn btn-primary btn-big" data-action="quick-sale">+ Sale</button>
-      ${!data.products.length ? `<div class="card notice">Start by adding your products in <a href="#pnl/products">Products</a>, and your starting cash in <a href="#pnl/accounts">Accounts</a> (Add money).</div>` : ""}
+      ${!data.products.length ? `<div class="card notice">Start in <a href="#pnl/products">Products</a>.</div>` : ""}
       ${overdue ? `<a class="card notice warn" href="#pnl/orders">${plural(overdue, "order")} overdue: check On the way</a>` : ""}
       <div class="card capital">
         <div class="stat-label">Total capital</div>
@@ -197,11 +215,11 @@
         <div class="card"><h3>Biggest expenses this month</h3>${rankList(cats, (c) => c.total, (c) => money(c.total), "No expenses this month.")}</div>
         <div class="card"><h3>Best sellers</h3>${rankList(best, (p) => p.unitsSold, (p) => plural(p.unitsSold, "unit"), "No sales yet.")}</div>
         <div class="card"><h3>Most profitable</h3>${rankList(profitable, (p) => p.net, (p) => `<span class="${tone(p.net)}">${money(p.net)}</span>`, "No sales yet.")}
-          ${profitable.length ? `<p class="muted small">Net profit: sales − cost of goods − expenses linked to the product.</p>` : ""}</div>
+          </div>
         <div class="card"><h3>Slowest sellers</h3>${rankList(slow, (x) => x.slowness,
           (x) => [x.avgDays === null ? "no sales" : `${Math.round(x.avgDays)}d avg`, x.oldestDays === null ? "" : `${x.oldestDays}d oldest`].filter(Boolean).join(" · "),
           "No stock or sales yet.")}
-          ${slow.length ? `<p class="muted small">d = days. Ranked by average days from arrival to sale, or the oldest unsold stock if that's longer.</p>` : ""}</div>
+          </div>
       </div>`;
   };
 
@@ -210,17 +228,16 @@
     if (!list.length) return "";
     const overdue = list.filter((x) => x.overdue).length;
     const rows = list.map(({ sale: s, owed, overdue: late, days }) => ({
-      cls: late ? "overdue" : "",
+      cls: late ? "overdue" : "", action: "mark-paid", id: s.id,
       cells: [
         `<b>${esc(s.buyer)}</b>${muted(`${esc(productName(s.productId))} × ${s.qty}`)}`,
         fmtDate(s.date) + muted(`${plural(days, "day")} ago`),
         !s.dueDate ? `<span class="muted">No due date</span>` : late ? badge(`Overdue since ${fmtDate(s.dueDate)}`, "warn") : fmtDate(s.dueDate),
         `<b>${money(owed)}</b>${Calc.salePaid(s) > 0 ? muted(`of ${money(Calc.saleRevenue(s))}`) : ""}`,
-        rowActions([["Mark paid", "mark-paid", s.id, "btn-primary"]]),
       ],
     }));
     return `<h3 class="group-title">Owed to me: ${money(total)}${overdue ? ` <span class="badge warn">${overdue} overdue</span>` : ""}</h3>` +
-      table([{ label: "Buyer" }, { label: "Sold" }, { label: "Due" }, { label: "Owed", num: true }, { label: "" }], rows, "");
+      table([{ label: "Buyer" }, { label: "Sold" }, { label: "Due" }, { label: "Owed", num: true }], rows, "");
   }
 
   // ---------- Monthly net profit chart (Dashboard) ----------
@@ -307,6 +324,7 @@
       const st = snap.inv.byProduct[p.id];
       const t = times[p.id];
       return {
+        action: "edit-product", id: p.id,
         cells: [
           `<b>${esc(p.name)}</b>${muted(esc(p.notes))}`,
           tierList(p, cost),
@@ -314,15 +332,12 @@
           st && st.qty ? String(st.qty) : "0",
           (t.avgDays === null ? `<span class="muted">No sales yet</span>` : days(t.avgDays) + " avg") +
             (t.oldestDays !== null ? muted(`Oldest unsold: ${days(t.oldestDays)}`) : ""),
-          rowActions([["Set stock", "set-stock", p.id], ["Edit", "edit-product", p.id], ["Delete", "delete-product", p.id, "btn-ghost danger"]]),
         ],
       };
     });
-    return sectionHead("Products", btn("Add product", "add-product", "", "btn-primary")) +
-      table([{ label: "Product" }, { label: "Price tiers (per unit · total · margin)" }, { label: "Landed cost/unit", num: true }, { label: "In stock", num: true }, { label: "Days to sell", num: true }, { label: "" }],
-        rows, "No products yet. Add the things you sell, with their prices per unit at each quantity tier.") +
-      `<p class="muted small">Margin = tier price − current landed cost per unit (average of stock in hand, or the latest incoming order). Margin % = margin ÷ tier price.</p>` +
-      `<p class="muted small">Days to sell = average days from stock arriving to it selling (oldest units assumed to sell first).</p>`;
+    return sectionHead("Products", btn("Add product", "add-product", "", "btn-primary"), [["Set stock…", "set-stock"]]) +
+      table([{ label: "Product" }, { label: "Price tiers (per unit · total · margin)" }, { label: "Landed cost/unit", num: true }, { label: "In stock", num: true }, { label: "Days to sell", num: true }],
+        rows, "No products yet.");
   };
 
   // A product's tiers, one per line: "10–49  $40.00  +$12.00 (30%)"
@@ -359,7 +374,7 @@
         else { status = badge(`Overdue by ${plural(-until, "day")}`, "warn"); overdue = true; }
       }
       return {
-        cls: overdue ? "overdue" : "",
+        cls: overdue ? "overdue" : "", action: "edit-order", id: o.id,
         cells: [
           `<b>${esc(productName(o.productId))}</b>${muted(esc(o.supplier))}`,
           String(o.qty),
@@ -367,19 +382,18 @@
           fmtDate(o.orderDate) + muted(`${plural(since, "day")} ago`),
           fmtDate(o.expectedDate),
           status,
-          rowActions([["Received", "receive-order", o.id, "btn-primary"], ["Edit", "edit-order", o.id], ["Delete", "delete-order", o.id, "btn-ghost danger"]]),
         ],
       };
     });
 
     const receivedRows = received.map((o) => ({
+      action: "edit-order", id: o.id,
       cells: [
         `<b>${esc(productName(o.productId))}</b>${muted(esc(o.supplier))}`,
         `${o.receivedQty}${Number(o.receivedQty) !== Number(o.qty) ? muted(`of ${o.qty} ordered`) : ""}`,
         money(Calc.orderTotal(o)) + muted(`${money(Calc.landedUnitCost(o))}/unit`),
         fmtDate(o.orderDate),
         fmtDate(o.receivedDate),
-        rowActions([["Edit", "edit-order", o.id], ["Undo receive", "unreceive-order", o.id], ["Delete", "delete-order", o.id, "btn-ghost danger"]]),
       ],
     }));
 
@@ -389,10 +403,10 @@
         ${stat("Units on the way", String(snap.onTheWayUnits))}
         ${stat("Value on the way", money(snap.onTheWayValue))}
       </div>` +
-      table([{ label: "Product" }, { label: "Qty", num: true }, { label: "Total cost", num: true }, { label: "Ordered" }, { label: "Expected" }, { label: "Arrival" }, { label: "" }],
-        rows, "Nothing on the way. Add an order when you buy stock.") +
+      table([{ label: "Product" }, { label: "Qty", num: true }, { label: "Total cost", num: true }, { label: "Ordered" }, { label: "Expected" }, { label: "Arrival" }],
+        rows, "Nothing on the way.") +
       (received.length ? `<details class="history"><summary>Received orders (${received.length})</summary>${table(
-        [{ label: "Product" }, { label: "Qty received", num: true }, { label: "Total cost", num: true }, { label: "Ordered" }, { label: "Received" }, { label: "" }],
+        [{ label: "Product" }, { label: "Qty received", num: true }, { label: "Total cost", num: true }, { label: "Ordered" }, { label: "Received" }],
         receivedRows, "")}</details>` : "");
   };
 
@@ -405,6 +419,7 @@
       .filter((x) => x.st && x.st.qty !== 0)
       .sort((a, b) => byName(a.p, b.p));
     const rows = items.map(({ p, st }) => ({
+      action: "set-stock", id: p.id,
       cells: [
         `<b>${esc(p.name)}</b>${muted(st.batches ? `From ${plural(st.batches, "order")}` : "Set manually")}`,
         st.qty < 0 ? `<span class="neg">${st.qty}</span>` : String(st.qty),
@@ -412,36 +427,31 @@
         money(st.value),
         times[p.id].avgDays === null ? `<span class="muted">No sales yet</span>` : days(times[p.id].avgDays),
         times[p.id].oldestDays === null ? "—" : days(times[p.id].oldestDays) + muted(`since ${fmtDate(times[p.id].oldestDate)}`),
-        rowActions([
-          ...(st.qty > 0 ? [["Record sale", "sell-product", p.id, "btn-primary"]] : []),
-          ["Set stock", "set-stock", p.id],
-        ]),
       ],
     }));
 
     const adjustments = (data.stockAdjustments || []).slice().sort((a, b) => (a.date < b.date ? 1 : -1));
     const adjRows = adjustments.map((a) => ({
+      action: "edit-stock-adj", id: a.id,
       cells: [
         fmtDate(a.date),
         `<b>${esc(productName(a.productId))}</b>${muted(esc(a.note))}`,
         `<span class="${tone(a.qty)}">${a.qty > 0 ? "+" : ""}${a.qty}</span>`,
         a.qty > 0 ? money(a.unitCost) : `<span class="muted">Avg cost</span>`,
-        rowActions([["Edit", "edit-stock-adj", a.id], ["Delete", "delete-stock-adj", a.id, "btn-ghost danger"]]),
       ],
     }));
 
-    return sectionHead("In hand", btn("Set stock", "set-stock") + btn("Record sale", "add-sale", "", "btn-primary")) +
+    return sectionHead("In hand", btn("Record sale", "add-sale", "", "btn-primary"), [["Set stock…", "set-stock"]]) +
       `<div class="stats">
         ${stat("Units in stock", String(snap.stockUnits))}
         ${stat("Inventory value", money(snap.stockValue))}
         ${stat("Oldest unsold stock", oldest ? days(oldest.days) : "—", oldest ? esc(productName(oldest.productId)) : "")}
       </div>` +
       table([{ label: "Product" }, { label: "Qty on hand", num: true }, { label: "Avg landed cost/unit", num: true }, { label: "Stock value", num: true },
-        { label: "Avg days to sell", num: true }, { label: "Oldest unsold", num: true }, { label: "" }],
-        rows, "No stock in hand. Received orders appear here, or use “Set stock” to enter stock you already have.") +
-      `<p class="muted small">Stock of the same product from several orders is combined at a weighted average cost. Days to sell: from the date stock arrived (received or set) to the sale, oldest units first.</p>` +
+        { label: "Avg days to sell", num: true }, { label: "Oldest unsold", num: true }],
+        rows, "No stock in hand.") +
       (adjustments.length ? `<details class="history"><summary>Stock adjustments (${adjustments.length})</summary>${table(
-        [{ label: "Date" }, { label: "Product" }, { label: "Units", num: true }, { label: "Cost/unit", num: true }, { label: "" }],
+        [{ label: "Date" }, { label: "Product" }, { label: "Units", num: true }, { label: "Cost/unit", num: true }],
         adjRows, "")}</details>` : "");
   };
 
@@ -463,7 +473,7 @@
           : `Paid later${muted(esc(accounts))}`;
       }
       return {
-        cls: overdue ? "overdue" : "",
+        cls: overdue ? "overdue" : "", action: "edit-sale", id: s.id,
         cells: [
           fmtDate(s.date),
           `<b>${esc(productName(s.productId))}</b>${muted(esc(s.buyer))}`,
@@ -473,9 +483,6 @@
           money(Calc.saleCost(s, snap)),
           `<span class="${tone(profit)}">${money(profit)}</span>`,
           paidCell,
-          rowActions([
-            ...(s.paidLater ? [[owed > 0 ? "Mark paid" : "Payments", "mark-paid", s.id, owed > 0 ? "btn-primary" : ""]] : []),
-            ["Edit", "edit-sale", s.id], ["Delete", "delete-sale", s.id, "btn-ghost danger"]]),
         ],
       };
     });
@@ -486,9 +493,8 @@
         ${stat("Units sold this month", String(m.units), `All time: ${all.units}`)}
       </div>` +
       table([{ label: "Date" }, { label: "Product" }, { label: "Qty", num: true }, { label: "Price/unit", num: true }, { label: "Revenue", num: true },
-        { label: "Cost", num: true }, { label: "Profit", num: true }, { label: "Paid" }, { label: "" }],
-        rows, "No sales yet.") +
-      `<p class="muted small">Profit per sale = revenue − landed cost of the units sold (weighted average).</p>`;
+        { label: "Cost", num: true }, { label: "Profit", num: true }, { label: "Paid" }],
+        rows, "No sales yet.");
   };
 
   // ---------- Spent ----------
@@ -506,6 +512,7 @@
       if (e.recurring === "weekly" || e.recurring === "monthly") tag = badge(`Repeats ${e.recurring}`);
       else if (e.fromRecurringId) tag = badge("Auto-logged");
       return {
+        action: "edit-expense", id: e.id,
         cells: [
           fmtDate(e.date),
           esc(e.category),
@@ -513,12 +520,11 @@
           e.productId ? esc(productName(e.productId)) : `<span class="muted">—</span>`,
           esc(accountName(e.accountId)),
           money(e.amount),
-          rowActions([["Edit", "edit-expense", e.id], ["Delete", "delete-expense", e.id, "btn-ghost danger"]]),
         ],
       };
     });
 
-    return sectionHead("Spent", btn("Categories", "manage-categories") + btn("Add expense", "add-expense", "", "btn-primary")) +
+    return sectionHead("Spent", btn("Add expense", "add-expense", "", "btn-primary"), [["Categories…", "manage-categories"]]) +
       `<div class="filters">
         ${field("Month", select("month", [["", "All time"], ...months.map((mo) => [mo, fmtMonth(mo)])], spentFilter.month, 'data-filter="month"'))}
         ${field("Category", select("category", [["", "All categories"], ...data.categories.map((c) => [c, c])], spentFilter.category, 'data-filter="category"'))}
@@ -535,7 +541,7 @@
             <div class="bar"><span style="width:${Math.max(2, (t.total / maxTotal) * 100)}%"></span></div>
           </div>`).join("") : `<p class="muted">No expenses in this period.</p>`}</div>
       </div>` +
-      table([{ label: "Date" }, { label: "Category" }, { label: "Description" }, { label: "Product" }, { label: "Paid from" }, { label: "Amount", num: true }, { label: "" }],
+      table([{ label: "Date" }, { label: "Category" }, { label: "Description" }, { label: "Product" }, { label: "Paid from" }, { label: "Amount", num: true }],
         rows, "No expenses in this period.");
   };
 
@@ -603,7 +609,7 @@
         <div class="acct-hero-head">
           <div class="stat-label">Overall balance</div>
           <div class="menu-wrap">
-            <button type="button" class="btn btn-ghost btn-icon" data-action="acct-menu" aria-label="More options" aria-haspopup="true">⋯</button>
+            <button type="button" class="btn btn-ghost btn-icon" data-action="menu" aria-label="More options" aria-haspopup="true" aria-expanded="false">⋯</button>
             <div class="menu card" hidden>
               <button type="button" class="menu-item" data-action="set-balance">Set balance…</button>
               <button type="button" class="menu-item" data-action="export">Export backup</button>
@@ -641,7 +647,7 @@
       <div class="field">
         <span class="field-label">Price tiers</span>
         <div class="tier-rows" data-tier-rows>${(start.length ? start : [{ min: 1, price: "" }]).map(tierRow).join("")}</div>
-        <span class="field-hint">A sale uses the tier with the highest “from” qty it reaches (e.g. 120 units uses the 100+ price).</span>
+        <span class="field-hint">A sale uses the highest tier its quantity reaches.</span>
         <div><button type="button" class="btn btn-sm" data-add-tier>+ Add tier</button></div>
       </div>
       ${field("Notes (optional)", textArea("notes", p.notes))}`,
@@ -664,6 +670,9 @@
       const item = { ...p, id: p.id || Store.uid(), name: v.name, notes: v.notes, tiers };
       delete item.prices; // old fixed-tier format
       return Store.commit((d) => upsertIn(d.products, item));
+    }, {
+      onDelete: id ? () => deleteProduct(id) : null, skipConfirm: true,
+      extra: id ? [["Set stock…", () => setStockForm(id)]] : [],
     });
 
     const rows = form.querySelector("[data-tier-rows]");
@@ -715,6 +724,11 @@
         item.receivedQty = num(v.receivedQty);
       }
       return Store.commit((d) => upsertIn(d.orders, item));
+    }, {
+      onDelete: id ? () => Store.commit((d) => removeFrom(d.orders, id)) : null, deleteWhat: "order",
+      extra: !id ? [] : received
+        ? [["Undo receive", () => { const r = unreceiveOrder(id); if (r === false) return; closeModal(); report(r); }]]
+        : [["Mark received…", () => receiveForm(id)]],
     });
 
     const preview = form.querySelector("[data-preview]");
@@ -731,9 +745,8 @@
   function receiveForm(id) {
     const o = Store.get("orders", id);
     const form = openForm(`Receive: ${productName(o.productId)}`, `
-      <p class="muted">Ordered ${o.qty} on ${fmtDate(o.orderDate)}. If some units arrived damaged or missing, lower the quantity: the full order cost is then spread over the units you received.</p>
       ${row(field("Received date", dateInput("receivedDate", Calc.today(), "required")),
-            field("Quantity received", qtyInput("receivedQty", o.qty, "required", 0)))}
+            field("Quantity received", qtyInput("receivedQty", o.qty, "required", 0), `Ordered ${o.qty}. Fewer arrived? The cost spreads over what came.`))}
       <div class="preview" data-preview></div>`,
     (v) => {
       const q = num(v.receivedQty);
@@ -832,7 +845,11 @@
         delete item.paidLater; delete item.dueDate; delete item.payments;
       }
       return Store.commit((d) => upsertIn(d.sales, item));
-    }, { submitLabel: quick ? "Save sale" : "Save" });
+    }, {
+      submitLabel: quick ? "Save sale" : "Save",
+      onDelete: id ? () => Store.commit((d) => removeFrom(d.sales, id)) : null, deleteWhat: "sale",
+      extra: id && s.paidLater ? [[Calc.saleOwed(s) > 0 ? "Mark paid…" : "Payments…", () => paymentForm(id)]] : [],
+    });
 
     const laterBox = form.querySelector("[name=paidLater]");
     const laterFields = form.querySelector("[data-later-fields]");
@@ -966,9 +983,9 @@
       ${row(field("Category", select("category", cats.map((c) => [c, c]), e.category)),
             accountField("Paid from", e.accountId))}
       ${field("Description", textInput("description", e.description))}
-      ${field("For product (optional)", select("productId", productOptions("Not linked to a product"), e.productId || ""), "Linked expenses count against that product's profit.")}
+      ${field("For product (optional)", select("productId", productOptions("Not linked to a product"), e.productId || ""))}
       ${canRepeat ? field("Repeats", select("recurring", [["none", "Doesn't repeat"], ["weekly", "Every week"], ["monthly", "Every month"]], e.recurring || "none"),
-        "Repeats are logged automatically from this date. Set to “Doesn't repeat” to stop.") : `<p class="muted small">Auto-logged from a repeating expense.</p>`}`,
+        "Repeats are logged automatically.") : `<p class="muted small">Auto-logged from a repeating expense.</p>`}`,
     (v) => {
       if (!(num(v.amount) > 0)) return "Enter an amount above 0.";
       const item = {
@@ -986,7 +1003,7 @@
       const error = Store.commit((d) => upsertIn(d.expenses, item));
       if (!error) Store.runRecurring();
       return error;
-    });
+    }, { onDelete: id ? () => deleteExpense(id) : null, skipConfirm: true });
   }
 
   // ---------- Expense categories ----------
@@ -1049,7 +1066,7 @@
   function adjustForm(id) {
     const t = id ? Store.get("transfers", id) : { accountId: CASH_ID, amount: "", date: Calc.today(), note: "" };
     openForm(id ? (t.cashCount ? "Edit balance correction" : "Edit adjustment") : "Manual adjustment", `
-      <p class="muted">Use a positive amount to add money and a negative amount (e.g. -20) to remove it.</p>
+      <p class="field-hint">Negative (e.g. -20) removes money.</p>
       ${row(field("Account", select("accountId", accountOptions(), t.accountId)),
             field("Amount (+/−)", `<input name="amount" type="number" step="0.01" inputmode="decimal" required value="${t.amount ?? ""}">`))}
       ${row(field("Date", dateInput("date", t.date, "required")), field("Note (optional)", textInput("note", t.note)))}`,
@@ -1101,7 +1118,7 @@
         </div>
         <input type="hidden" name="fromId" value="${esc(t.fromId)}"><input type="hidden" name="toId" value="${esc(t.toId)}">
       </div>` : accountPicker("accountId", t.accountId || CASH_ID, k.label)}
-      ${kind === "take" ? `<p class="muted">For money you take for yourself. Business costs go in Spent.</p>` : ""}
+      ${kind === "take" ? `<p class="field-hint">For yourself. Business costs go in Spent.</p>` : ""}
       <div data-bills>
         <p class="field-label">Count by bills (optional)</p>
         <div class="bills">
@@ -1177,7 +1194,7 @@
   function setBalanceForm(accountId) {
     const balances = Calc.balances(Store.data);
     const form = openForm("Set balance", `
-      <p class="muted">Enter how much you actually have right now. The difference is saved as one correction (not counted as money in or out). Delete it under "Balance corrections" to undo.</p>
+      <p class="field-hint">Enter what you actually have; the difference is saved as one correction.</p>
       ${accountId ? `<input type="hidden" name="accountId" value="${esc(accountId)}">` : accountPicker("accountId", CASH_ID, "Account")}
       <div class="preview" data-now></div>
       ${row(field("You have now", moneyInput("counted", "", "required")), field("Date", dateInput("date", Calc.today(), "required")))}
@@ -1217,10 +1234,10 @@
     };
     const options = [["", "Choose a product…"], ...Store.data.products.slice().sort(byName).map((p) => [p.id, `${p.name} (${stockOf(p.id)} in stock)`])];
     const form = openForm("Set stock", `
-      <p class="muted">Enter how many units you actually have. The difference from the tracker is logged as a stock adjustment, e.g. for stock you had before you started tracking, or after a recount.</p>
+      <p class="field-hint">Enter what you actually have; the difference is logged.</p>
       ${field("Product", select("productId", options, presetProductId || "", "required"))}
       ${row(field("Units you have", qtyInput("count", "", "required", 0)), field("Date", dateInput("date", Calc.today(), "required")))}
-      <div data-cost-row hidden>${field("Cost per unit (for the added units)", moneyInput("unitCost", costOf(presetProductId)), "What each unit cost you. Used for stock value and profit.")}</div>
+      <div data-cost-row hidden>${field("Cost per unit (for the added units)", moneyInput("unitCost", costOf(presetProductId)))}</div>
       ${field("Note (optional)", textInput("note", "", 'placeholder="e.g. Opening stock, recount"'))}
       <div class="preview" data-preview></div>`,
     (v) => {
@@ -1232,7 +1249,10 @@
       if (change > 0 && v.unitCost === "") return "Enter the cost per unit for the added units.";
       const item = { id: Store.uid(), productId: v.productId, date: v.date, qty: change, unitCost: change > 0 ? num(v.unitCost) : null, note: v.note };
       return Store.commit((d) => d.stockAdjustments.push(item));
-    }, { submitLabel: "Save stock" });
+    }, {
+      submitLabel: "Save stock",
+      extra: presetProductId && stockOf(presetProductId) > 0 ? [["Record a sale…", () => saleForm(null, presetProductId)]] : [],
+    });
 
     const costRow = form.querySelector("[data-cost-row]");
     const costInput = form.querySelector("[name=unitCost]");
@@ -1268,7 +1288,7 @@
       if (q > 0 && v.unitCost === "") return "Enter the cost per unit for the added units.";
       const item = { ...a, productId: v.productId, date: v.date, qty: q, unitCost: q > 0 ? num(v.unitCost) : null, note: v.note };
       return Store.commit((d) => upsertIn(d.stockAdjustments, item));
-    });
+    }, { onDelete: () => Store.commit((d) => removeFrom(d.stockAdjustments, id)), deleteWhat: "stock adjustment" });
     const costRow = form.querySelector("[data-cost-row]");
     const update = () => { costRow.hidden = !(num(formValues(form).qty) > 0); };
     form.addEventListener("input", update);
@@ -1281,32 +1301,44 @@
     report(Store.commit((d) => removeFrom(d[list], id)));
   }
 
+  // Used by edit sheets (Delete / Undo receive at the bottom). Each returns
+  // false (you said no), an error message, or null (done).
+  function deleteProduct(id) {
+    const d = Store.data;
+    const uses = d.orders.filter((x) => x.productId === id).length + d.sales.filter((x) => x.productId === id).length +
+      (d.stockAdjustments || []).filter((x) => x.productId === id).length;
+    if (uses) return `This product is used by ${plural(uses, "order, sale or stock adjustment")}. Delete those first.`;
+    const linked = d.expenses.filter((x) => x.productId === id).length;
+    if (!confirm(`Delete "${productName(id)}"?${linked ? ` ${plural(linked, "linked expense")} will be kept, but unlinked.` : ""} This can't be undone.`)) return false;
+    return Store.commit((dd) => {
+      removeFrom(dd.products, id);
+      dd.expenses.forEach((x) => { if (x.productId === id) x.productId = ""; });
+    });
+  }
+  function unreceiveOrder(id) {
+    if (!confirm("Move this order back to On the way? Its units leave your stock.")) return false;
+    return Store.commit((d) => {
+      const o = d.orders.find((x) => x.id === id);
+      delete o.receivedDate;
+      delete o.receivedQty;
+    });
+  }
+  function deleteExpense(id) {
+    const e = Store.get("expenses", id);
+    const repeats = e.recurring === "weekly" || e.recurring === "monthly";
+    if (!confirm(`Delete this expense?${repeats ? " It will also stop repeating (expenses already logged are kept)." : ""} This can't be undone.`)) return false;
+    return Store.commit((d) => removeFrom(d.expenses, id));
+  }
+  const reportUnlessCancelled = (r) => { if (r !== false) report(r); };
+
   const ACTIONS = {
     "add-product": () => productForm(),
     "edit-product": productForm,
-    "delete-product": (id) => {
-      const d = Store.data;
-      const uses = d.orders.filter((x) => x.productId === id).length + d.sales.filter((x) => x.productId === id).length +
-        (d.stockAdjustments || []).filter((x) => x.productId === id).length;
-      if (uses) return alert(`This product is used by ${plural(uses, "order, sale or stock adjustment")}. Delete those first.`);
-      const linked = d.expenses.filter((x) => x.productId === id).length;
-      if (!confirm(`Delete "${productName(id)}"?${linked ? ` ${plural(linked, "linked expense")} will be kept, but unlinked.` : ""} This can't be undone.`)) return;
-      report(Store.commit((dd) => {
-        removeFrom(dd.products, id);
-        dd.expenses.forEach((x) => { if (x.productId === id) x.productId = ""; });
-      }));
-    },
+    "delete-product": (id) => reportUnlessCancelled(deleteProduct(id)),
     "add-order": () => orderForm(),
     "edit-order": orderForm,
     "receive-order": receiveForm,
-    "unreceive-order": (id) => {
-      if (!confirm("Move this order back to On the way? Its units leave your stock.")) return;
-      report(Store.commit((d) => {
-        const o = d.orders.find((x) => x.id === id);
-        delete o.receivedDate;
-        delete o.receivedQty;
-      }));
-    },
+    "unreceive-order": (id) => reportUnlessCancelled(unreceiveOrder(id)),
     "delete-order": (id) => confirmDelete("order", "orders", id),
     "add-sale": () => saleForm(),
     "quick-sale": () => saleForm(null, null, { quick: true }),
@@ -1316,12 +1348,7 @@
     "delete-sale": (id) => confirmDelete("sale", "sales", id),
     "add-expense": () => expenseForm(),
     "edit-expense": expenseForm,
-    "delete-expense": (id) => {
-      const e = Store.get("expenses", id);
-      const repeats = e.recurring === "weekly" || e.recurring === "monthly";
-      if (!confirm(`Delete this expense?${repeats ? " It will also stop repeating (expenses already logged are kept)." : ""} This can't be undone.`)) return;
-      report(Store.commit((d) => removeFrom(d.expenses, id)));
-    },
+    "delete-expense": (id) => reportUnlessCancelled(deleteExpense(id)),
     "manage-categories": categoriesForm,
     "add-account": () => accountForm(),
     "edit-account": accountForm,
@@ -1346,10 +1373,6 @@
       render();
     },
     "acct-more": () => { acctUi.shown += HISTORY_STEP; render(); },
-    "acct-menu": () => {
-      const menu = root.querySelector(".acct-hero .menu");
-      if (menu) menu.hidden = !menu.hidden;
-    },
     "edit-transfer": (id) => {
       const t = Store.get("transfers", id);
       if (!t) return;
@@ -1365,14 +1388,33 @@
   };
   document.addEventListener("lifetracker:imported", () => render());
 
+  function closeMenus() {
+    root.querySelectorAll(".menu:not([hidden])").forEach((m) => {
+      m.hidden = true;
+      const b = m.parentElement.querySelector("[data-action=menu]");
+      if (b) b.setAttribute("aria-expanded", "false");
+    });
+  }
   root.addEventListener("click", (e) => {
     const b = e.target.closest("[data-action]");
-    // Close an open ⋯ menu on any click outside its button
-    if (!b || b.dataset.action !== "acct-menu") root.querySelectorAll(".menu:not([hidden])").forEach((m) => { m.hidden = true; });
+    if (b && b.dataset.action === "menu") {
+      // ⋯ button: open its menu (closing any other)
+      const menu = b.parentElement.querySelector(".menu");
+      const open = menu.hidden;
+      closeMenus();
+      menu.hidden = !open;
+      b.setAttribute("aria-expanded", String(open));
+      if (open) { const first = menu.querySelector(".menu-item"); if (first) first.focus(); }
+      return;
+    }
+    closeMenus();
     if (b && ACTIONS[b.dataset.action]) ACTIONS[b.dataset.action](b.dataset.id);
   });
-  document.addEventListener("click", (e) => {
-    if (!root.contains(e.target)) root.querySelectorAll(".menu:not([hidden])").forEach((m) => { m.hidden = true; });
+  document.addEventListener("click", (e) => { if (!root.contains(e.target)) closeMenus(); });
+  // Tappable rows: Enter / Space open them like a button; Escape closes a menu
+  root.addEventListener("keydown", (e) => {
+    if ((e.key === "Enter" || e.key === " ") && e.target.matches("tr[data-action]")) { e.preventDefault(); e.target.click(); }
+    if (e.key === "Escape") closeMenus();
   });
   // Chart: hover with a mouse, tap on a phone
   root.addEventListener("mouseover", (e) => {
