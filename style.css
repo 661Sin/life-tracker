@@ -46,6 +46,7 @@
   --glass-pop: rgba(44, 44, 46, 0.66);             /* picker popovers (a bit denser than cards) */
   --glass-sheet: rgba(36, 36, 38, 0.82);           /* phone bottom sheets */
   --scrim: rgba(0, 0, 0, 0.55);                    /* dims the page behind a bottom sheet */
+  --photo-backdrop: rgba(0, 0, 0, 0.94);          /* behind a full-screen photo (Journal) */
   --glass-border: rgba(255, 255, 255, 0.14);
   --glass-border-strong: rgba(255, 255, 255, 0.24);
   --glass-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.18);  /* light catching the top edge */
@@ -1171,6 +1172,157 @@ td.actions { width: 1%; white-space: nowrap; }
 }
 
 /* =====================================================================
+   Journal section (journal.js): song of the week + saved feed
+   Cards in the grid are light glass WITHOUT blur (many blurred panels
+   would make phones slow); sheets and the mini-player use real glass.
+   ===================================================================== */
+#journal-root { padding-bottom: 24px; }
+.jr-head { margin-top: 28px; }
+
+/* Filter row: chips, tag picker, search */
+.jr-bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 18px; }
+.jr-filters { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-width: 0; }
+.jr-chips { margin: 0; }
+.jr-tag-filter .gp-field { font-size: 13px; font-weight: 500; padding: 5px 12px; background: none; border-color: var(--glass-border); border-radius: var(--radius-pill); color: var(--text-muted); }
+.jr-tag-filter.on .gp-field { color: var(--text); background: var(--accent-soft); border-color: var(--accent-edge); }
+.jr-tag-filter .gp-field svg { width: 14px; height: 14px; }
+.jr-search {
+  margin-left: auto; display: flex; align-items: center; gap: 8px; width: 220px; max-width: 100%;
+  padding: 6px 14px; border-radius: var(--radius-pill); background: var(--glass-fill); border: 1px solid var(--glass-border);
+}
+.jr-search:focus-within { border-color: var(--accent); }
+.jr-search svg { width: 16px; height: 16px; flex-shrink: 0; fill: none; stroke: var(--text-muted); stroke-width: 2; stroke-linecap: round; }
+.jr-search input { font: inherit; font-size: 14px; color: var(--text); background: none; border: none; outline: none; width: 100%; min-width: 0; padding: 0; }
+
+/* Masonry grid: columns filled by journal.js (shortest first) */
+.jr-grid { display: flex; gap: 12px; align-items: flex-start; }
+.jr-grid > .empty { flex: 1; }
+.jr-col { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 12px; }
+.jr-sentinel { height: 1px; }
+.jr-card {
+  position: relative; overflow: hidden; cursor: pointer;
+  background: var(--glass-fill); border: 1px solid var(--glass-border); border-radius: var(--radius-sm);
+  box-shadow: var(--glass-highlight), var(--glass-shadow-sm);
+  -webkit-tap-highlight-color: transparent;
+  transition: transform var(--t-hover) var(--ease-spring), background var(--t-hover) ease;
+}
+.jr-card:hover { background: var(--glass-fill-hover); }
+.jr-card:active { transform: scale(var(--press-scale)); transition-duration: var(--t-press); }
+.jr-card:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.jr-card.got { opacity: 0.6; }
+.jr-media { position: relative; background: var(--card); overflow: hidden; }
+.jr-media img { display: block; width: 100%; height: 100%; object-fit: cover; opacity: 0; transition: opacity var(--t-hover) ease; }
+.jr-media img.loaded { opacity: 1; }
+.jr-media.missing::after { content: "Picture missing"; position: absolute; inset: 0; display: grid; place-items: center; font-size: 12px; color: var(--text-muted); }
+.jr-play {
+  position: absolute; left: 50%; top: 50%; width: 44px; height: 44px; margin: -22px 0 0 -22px; border-radius: 50%;
+  display: grid; place-items: center; background: var(--glass-pop); border: 1px solid var(--glass-border-strong);
+  -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur); box-shadow: var(--glass-shadow-sm);
+}
+.jr-play svg { width: 20px; height: 20px; fill: var(--text); margin-left: 2px; }
+.jr-play-sm { position: static; margin: 0 0 0 auto; width: 30px; height: 30px; }
+.jr-play-sm svg { width: 14px; height: 14px; }
+.jr-site { display: flex; align-items: center; gap: 10px; padding: 14px 14px 4px; color: var(--text); text-decoration: none; }
+.jr-site-letter {
+  width: 36px; height: 36px; flex-shrink: 0; display: grid; place-items: center; border-radius: 10px;
+  font-weight: 700; font-size: 16px; color: var(--text); background: var(--accent-soft); border: 1px solid var(--accent-edge);
+}
+.jr-site-name { font-size: 13px; color: var(--text-muted); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.jr-card-body { padding: 10px 14px 13px; display: flex; flex-direction: column; gap: 4px; }
+.jr-card-body:empty { display: none; }
+.jr-card-title { font-size: 14px; font-weight: 600; line-height: 1.3; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.jr-card-line { font-size: 13px; line-height: 1.35; color: var(--text-muted); overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.jr-badge { align-self: flex-start; margin-top: 4px; font-size: 12px; font-weight: 600; padding: 3px 9px; border-radius: var(--radius-pill); }
+.jr-badge.want { color: var(--text); background: var(--accent-soft); border: 1px solid var(--accent-edge); }
+.jr-badge.got { color: var(--positive); border: 1px solid var(--glass-border); }
+
+/* Save sheet: two big choices (also used by Export backup) */
+.jr-choices { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.jr-choice {
+  position: relative; font: inherit; color: var(--text); cursor: pointer; text-align: center;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; padding: 26px 12px;
+  background: var(--glass-fill); border: 1px solid var(--glass-border); border-radius: var(--radius); box-shadow: var(--glass-highlight);
+  -webkit-tap-highlight-color: transparent;
+  transition: background var(--t-hover) ease, transform var(--t-hover) var(--ease-spring);
+}
+.jr-choice:hover { background: var(--glass-fill-hover); }
+.jr-choice:active { transform: scale(var(--press-scale)); transition-duration: var(--t-press); }
+.jr-choice:focus-within, .jr-choice:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.jr-choice:disabled { opacity: 0.6; cursor: default; }
+.jr-choice svg { width: 30px; height: 30px; fill: none; stroke: var(--accent); stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.jr-choice b { font-size: 16px; font-weight: 600; }
+.jr-choice span { font-size: 13px; color: var(--text-muted); }
+.jr-file { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+
+/* Forms: link preview, photo, tags, switches */
+.jr-prev { display: flex; align-items: center; gap: 12px; padding: 10px; border-radius: var(--radius-sm); background: var(--card); border: 1px solid var(--border); }
+.jr-prev img { width: 96px; flex-shrink: 0; object-fit: cover; border-radius: 10px; background: var(--card); }
+.jr-prev-text { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.jr-prev-text b { font-size: 14px; font-weight: 600; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.jr-prev-text span { font-size: 12px; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.jr-preview:empty { display: none; }
+.jr-photo-pick { position: relative; display: flex; flex-direction: column; align-items: center; gap: 10px; }
+.jr-photo-pick img { display: block; max-width: 100%; max-height: 260px; border-radius: var(--radius-sm); background: var(--card); }
+.jr-photo-pick img:not([src]) { width: 100%; height: 160px; }
+.jr-change { position: relative; cursor: pointer; }
+.jr-tags { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.jr-newtag { display: inline-flex; align-items: center; gap: 4px; }
+.field .jr-newtag input { width: 110px; padding: 5px 12px; font-size: 13px; border-radius: var(--radius-pill); }
+.jr-switch-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 15px; cursor: pointer; }
+.jr-switch {
+  appearance: none; -webkit-appearance: none; flex-shrink: 0; margin: 0; cursor: pointer; position: relative;
+  width: 46px; height: 28px; border-radius: var(--radius-pill); background: var(--glass-fill-strong); border: 1px solid var(--glass-border);
+  transition: background var(--t-hover) ease;
+}
+.jr-switch::after {
+  content: ""; position: absolute; top: 2px; left: 2px; width: 22px; height: 22px; border-radius: 50%;
+  background: var(--text); box-shadow: var(--glass-shadow-sm); transition: transform var(--t-hover) var(--ease-spring);
+}
+.jr-switch:checked { background: var(--positive); border-color: transparent; }
+.jr-switch:checked::after { transform: translateX(18px); }
+.jr-switch:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.jr-want { display: flex; flex-direction: column; gap: 14px; padding: 14px; border-radius: var(--radius-sm); background: var(--card); border: 1px solid var(--border); }
+.jr-want[hidden] { display: none; }
+
+/* Item sheet (full size) */
+.modal-box.jr-view-box { max-width: 760px; }
+.jr-view { display: flex; flex-direction: column; gap: 14px; }
+.jr-embed { width: 100%; margin: 0 auto; border-radius: var(--radius-sm); overflow: hidden; background: var(--bg); max-width: 100%; }
+.jr-embed iframe { display: block; width: 100%; height: 100%; border: 0; }
+.jr-view-photo { display: block; padding: 0; border: 0; background: none; cursor: zoom-in; border-radius: var(--radius-sm); overflow: hidden; }
+.jr-view-photo img, .jr-view-thumb img { display: block; width: 100%; max-height: 70vh; object-fit: contain; background: var(--bg); }
+.jr-view-thumb { display: block; border-radius: var(--radius-sm); overflow: hidden; }
+.jr-site-big { padding: 18px; border-radius: var(--radius-sm); background: var(--card); border: 1px solid var(--border); }
+.jr-view-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 13px; color: var(--text-muted); }
+.jr-out { display: inline-flex; align-items: center; gap: 4px; text-decoration: none; }
+.jr-out svg, .jr-wish-actions .btn svg { width: 13px; height: 13px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.jr-wish-actions .btn { display: inline-flex; align-items: center; gap: 6px; text-decoration: none; }
+.jr-view-tags { display: flex; flex-wrap: wrap; gap: 6px; }
+.jr-thoughts { font-size: 15px; line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; }
+.jr-wish { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding: 14px 16px; border-radius: var(--radius-sm); background: var(--card); border: 1px solid var(--border); }
+.jr-wish-price { font-size: 24px; font-weight: 700; font-variant-numeric: tabular-nums; margin-top: 2px; }
+.jr-wish.got .jr-wish-price { color: var(--text-muted); text-decoration: line-through; }
+.jr-wish-actions { display: flex; align-items: center; gap: 14px; }
+.jr-got { font-size: 14px; }
+
+/* Photo full screen */
+.jr-full { position: fixed; inset: 0; z-index: 400; display: grid; place-items: center; background: var(--photo-backdrop); cursor: zoom-out; outline: none; }
+.jr-full img { max-width: 100vw; max-height: 100vh; max-height: 100dvh; object-fit: contain; }
+.jr-full-close {
+  position: absolute; top: calc(14px + env(safe-area-inset-top)); right: 14px; width: 40px; height: 40px; border-radius: 50%;
+  display: grid; place-items: center; cursor: pointer; padding: 0;
+  background: var(--glass-pop); border: 1px solid var(--glass-border-strong); -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur);
+}
+.jr-full-close svg { width: 18px; height: 18px; fill: none; stroke: var(--text); stroke-width: 2; stroke-linecap: round; }
+
+/* Storage sheet */
+.jr-storage { display: flex; flex-direction: column; gap: 14px; }
+.jr-st-list { display: flex; flex-direction: column; }
+.jr-st-row { display: flex; justify-content: space-between; padding: 9px 0; font-size: 14px; color: var(--text-muted); }
+.jr-st-row + .jr-st-row { border-top: 1px solid var(--border); }
+.jr-st-row b { color: var(--text); font-weight: 600; font-variant-numeric: tabular-nums; }
+
+/* =====================================================================
    Phone layout (screens up to 700px wide)
    ===================================================================== */
 @media (max-width: 700px) {
@@ -1217,6 +1369,19 @@ td.actions { width: 1%; white-space: nowrap; }
   .lf-row { padding: 12px 16px; gap: 12px; }
   .lf-row + .lf-row::before { left: 16px; right: 16px; }
   .lf-toast { bottom: calc(96px + env(safe-area-inset-bottom)); }
+
+  /* Journal */
+  .jr-head { margin-top: 22px; }
+  .jr-bar { gap: 8px; }
+  .jr-search { order: -1; width: 100%; margin-left: 0; }
+  .jr-grid, .jr-col { gap: 10px; }
+  .jr-card-body { padding: 9px 11px 11px; }
+  .jr-card-title { font-size: 13px; }
+  .jr-card-line { font-size: 12px; }
+  .jr-site { padding: 12px 11px 2px; }
+  .modal:has(.jr-view-box) { padding: 0; align-items: flex-end; }
+  .modal-box.jr-view-box { max-height: calc(100dvh - 20px); border-radius: var(--radius-lg) var(--radius-lg) 0 0; padding-bottom: calc(16px + env(safe-area-inset-bottom)); }
+  .jr-embed { border-radius: 10px; }
   .lf-q small { display: none; }
   .lf-wheel-wrap { grid-template-columns: 30px 1fr 30px; }
   .lf-wheel-arrow { width: 30px; height: 30px; }
@@ -1271,12 +1436,12 @@ td.actions { width: 1%; white-space: nowrap; }
    ===================================================================== */
 /* No backdrop-filter support: solid dark panels instead of see-through ones */
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
-  .card, .side-tabs, .subnav, .modal-box, .gp-pop, .gp-pop.gp-sheet { background: var(--glass-solid); }
+  .card, .side-tabs, .subnav, .modal-box, .gp-pop, .gp-pop.gp-sheet, .jr-play, .jr-full-close { background: var(--glass-solid); }
 }
 
 /* "Reduce transparency" turned on: more solid panels */
 @media (prefers-reduced-transparency: reduce) {
-  .card, .side-tabs, .subnav, .modal-box, .gp-pop, .gp-pop.gp-sheet {
+  .card, .side-tabs, .subnav, .modal-box, .gp-pop, .gp-pop.gp-sheet, .jr-play, .jr-full-close {
     background: var(--glass-solid);
     -webkit-backdrop-filter: none;
     backdrop-filter: none;
