@@ -859,6 +859,103 @@ td.actions { width: 1%; white-space: nowrap; }
 .gp-sheet .gp-time { max-width: 320px; margin: 0 auto; }
 
 /* =====================================================================
+   Life section (life.js). Calm: big key number, lists, lots of space.
+   ===================================================================== */
+.lf-page { padding-bottom: 24px; }
+.lf-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; margin: 8px 0 28px; }
+.lf-hero { min-width: 0; flex: 1; border-radius: var(--radius); }
+.lf-hero.lf-tap { cursor: pointer; padding: 10px 14px; margin: -10px -14px; transition: background var(--t-hover) ease; }
+.lf-hero.lf-tap:hover { background: var(--card); }
+.lf-hero.lf-tap:focus-visible { outline: 2px solid var(--glass-border-strong); }
+.lf-big { font-size: 52px; font-weight: 700; letter-spacing: -0.03em; line-height: 1.05; margin-top: 6px; font-variant-numeric: tabular-nums; }
+.lf-of { color: var(--text-muted); font-weight: 600; font-size: 0.6em; }
+.lf-unit { color: var(--text-muted); font-weight: 600; font-size: 0.45em; margin-left: 4px; letter-spacing: 0; }
+.lf-sub { color: var(--text-muted); font-size: 14px; margin-top: 8px; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; }
+.lf-bar { max-width: 320px; margin-top: 12px; }
+.bar span.pos-fill { background: var(--positive); }
+.lf-actions { display: flex; gap: 8px; align-items: center; flex-shrink: 0; }
+.lf-chip {
+  font: inherit; font-size: 13px; color: var(--text); cursor: pointer;
+  background: var(--glass-fill); border: 1px solid var(--glass-border); border-radius: var(--radius-pill); padding: 3px 10px;
+}
+.lf-chip:hover { background: var(--glass-fill-hover); }
+.lf-group { display: flex; align-items: center; gap: 8px; margin-top: 28px; }
+.lf-group .badge { font-weight: 500; }
+
+/* Lists of tappable rows */
+.lf-list { padding: 6px 0; margin-bottom: 8px; }
+.lf-row {
+  display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 14px;
+  padding: 11px 22px; cursor: pointer; position: relative;
+  -webkit-tap-highlight-color: transparent;
+  transition: background var(--t-hover) ease;
+}
+.lf-row:not(:has(.lf-lead)) { grid-template-columns: 1fr auto; }
+.lf-row + .lf-row::before { content: ""; position: absolute; top: 0; left: 22px; right: 22px; border-top: 1px solid var(--border); }
+.lf-row:hover { background: var(--card-hover); }
+.lf-row:focus-visible { outline: 2px solid var(--glass-border-strong); outline-offset: -2px; }
+.lf-row.overdue { box-shadow: inset 3px 0 0 var(--accent); }
+.lf-row.done .lf-title { color: var(--text-muted); }
+.lf-row.task.done .lf-title { text-decoration: line-through; }
+.lf-lead { display: flex; align-items: center; justify-content: center; min-width: 30px; }
+.lf-main { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.lf-title { font-size: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lf-meta { font-size: 13px; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lf-trail { font-size: 14px; font-weight: 600; text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.lf-trail .muted { font-weight: 400; }
+.lf-emoji { margin-right: 8px; }
+.lf-big-emoji { font-size: 22px; line-height: 1; }
+.lf-flag { color: var(--accent); }
+.lf-code {
+  font-size: 11px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-muted);
+  border: 1px solid var(--glass-border); border-radius: 8px; padding: 4px 6px; min-width: 40px; text-align: center;
+}
+
+/* Round tick button */
+.lf-tick {
+  width: 30px; height: 30px; border-radius: 50%; padding: 0; flex-shrink: 0;
+  display: grid; place-items: center; cursor: pointer;
+  background: none; border: 1.5px solid var(--glass-border-strong);
+  -webkit-tap-highlight-color: transparent;
+  transition: background var(--t-hover) ease, border-color var(--t-hover) ease, transform var(--t-hover) var(--ease-spring);
+}
+.lf-tick svg { width: 18px; height: 18px; fill: none; stroke: var(--bg); stroke-width: 2.6; stroke-linecap: round; stroke-linejoin: round; opacity: 0; transform: scale(0.5); transition: opacity 150ms ease, transform var(--t-hover) var(--ease-spring); }
+.lf-tick:hover { border-color: var(--positive); }
+.lf-tick:active { transform: scale(0.85); transition-duration: var(--t-press); }
+.lf-tick.on { background: var(--positive); border-color: var(--positive); }
+.lf-tick.on svg { opacity: 1; transform: none; }
+.lf-tick:focus-visible { outline: 2px solid var(--glass-border-strong); outline-offset: 2px; }
+
+/* Today: quick sleep log */
+.lf-sleep { margin-bottom: 8px; }
+.lf-sleep-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 12px; }
+.lf-sleep-head h3 { margin: 0; }
+.lf-sleep-hours { font-size: 20px; font-variant-numeric: tabular-nums; }
+.lf-sleep-times { margin-bottom: 14px; }
+.lf-quality { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; margin-bottom: 8px; }
+.lf-q {
+  font: inherit; color: var(--text-muted); cursor: pointer;
+  display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 10px 4px;
+  background: var(--glass-fill); border: 1px solid var(--glass-border); border-radius: var(--radius-sm);
+  -webkit-tap-highlight-color: transparent;
+  transition: background var(--t-hover) ease, transform var(--t-hover) var(--ease-spring);
+}
+.lf-q span { font-size: 24px; line-height: 1; }
+.lf-q small { font-size: 11px; }
+.lf-q:hover { background: var(--glass-fill-hover); color: var(--text); }
+.lf-q:active { transform: scale(0.92); transition-duration: var(--t-press); }
+.lf-q.on, .seg input:checked + span.lf-qseg { background: var(--glass-fill-strong); color: var(--text); border-color: var(--glass-border-strong); }
+
+.lf-collapse { margin-top: 20px; }
+.lf-toast {
+  position: fixed; left: 50%; bottom: calc(28px + env(safe-area-inset-bottom)); transform: translate(-50%, 0);
+  z-index: 300; max-width: calc(100vw - 32px);
+  padding: 11px 20px; border-radius: var(--radius-pill); font-size: 14px; font-weight: 500;
+  background: var(--glass-pop); -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--glass-border-strong); box-shadow: var(--glass-highlight), var(--glass-shadow);
+}
+
+/* =====================================================================
    Phone layout (screens up to 700px wide)
    ===================================================================== */
 @media (max-width: 700px) {
@@ -898,6 +995,15 @@ td.actions { width: 1%; white-space: nowrap; }
   .capital-value { font-size: 38px; }
   .hist-date { padding: 14px 16px 4px; }
   .hist-row { padding: 9px 16px; gap: 10px; }
+
+  /* Life */
+  .lf-head { margin-bottom: 22px; }
+  .lf-big { font-size: 44px; }
+  .lf-row { padding: 12px 16px; gap: 12px; }
+  .lf-row + .lf-row::before { left: 16px; right: 16px; }
+  .lf-toast { bottom: calc(96px + env(safe-area-inset-bottom)); }
+  .lf-q small { display: none; }
+  .form-row.lf-sleep-times { grid-template-columns: 1fr 1fr; }
 
   /* Tables turn into a stack of small cards, each value labelled */
   .table-card { background: none; border: none; padding: 0; box-shadow: none; -webkit-backdrop-filter: none; backdrop-filter: none; }
