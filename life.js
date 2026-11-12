@@ -187,12 +187,15 @@
   const CHARTS = {}; // name → draw(el), for charts sized to their card
 
   // ---------- Today ----------
-  // The daily check-in: habits to tick, tasks due, school due soon, last
-  // night's sleep, and Log workout as the one main action.
+  // Top: the month wheel (every day coloured by its automatic score) and the
+  // one main action, "Update my day" (guided check-in). Below: today's habits
+  // to tick, tasks due and school due soon.
   const QUALITY = [["1", "😫", "Awful"], ["2", "😕", "Poor"], ["3", "😐", "OK"], ["4", "🙂", "Good"], ["5", "😄", "Great"]];
+  const wheelUi = { month: null, pick: null }; // month shown ("YYYY-MM") and the lifted day
 
   PAGES.today = (d) => {
     const today = L.today();
+    if (!wheelUi.month) wheelUi.month = today.slice(0, 7);
     const habits = d.habits.filter((h) => L.dueToday(h, today));
     const done = habits.filter((h) => L.isDone(h, today)).length;
     const active = d.habits.filter((h) => !h.archived);
@@ -202,21 +205,21 @@
     const school = L.dueStandards(d.standards, today, 14);
     const night = d.sleep.find((s) => s.date === today);
 
-    const subBits = [];
-    const score = L.dayScore(d, today);
-    if (score.score !== null) subBits.push(`<span class="lf-score lf-score-${score.colour}">${score.score}%</span> today`);
-    if (streak > 1) subBits.push(`🔥 ${streak}-day streak`);
-    if (night) subBits.push(`<button type="button" class="lf-chip" data-action="edit-sleep" data-id="${esc(night.id)}">😴 ${fmtHours(L.sleepHours(night.bed, night.wake))}</button>`);
-    let html = head({
-      label: F_LONG.format(L.toUTC(today)),
-      big: habits.length ? `${done}<span class="lf-of">/${habits.length}</span>` : String(dueTasks.length),
-      sub: [habits.length ? (done === habits.length ? "All habits done" : "habits done") : plural(dueTasks.length, "task") + " due", ...subBits].join(" · "),
-      bar: habits.length ? done / habits.length : null,
-      primary: ["Log workout", "add-workout"],
-      menu: [["Log sleep…", "add-sleep"], ["New task…", "add-task"], ["Day score…", "score-settings"], ["Export backup", "export"], ["Import backup…", "import"]],
-    });
-
-    if (!night) html += sleepQuick(d, today);
+    const bits = [];
+    if (habits.length) bits.push(`${done}/${habits.length} habits`);
+    if (streak > 1) bits.push(`🔥 ${streak}-day streak`);
+    if (night) bits.push(`<button type="button" class="lf-chip" data-action="edit-sleep" data-id="${esc(night.id)}">😴 ${fmtHours(L.sleepHours(night.bed, night.wake))}</button>`);
+    let html = `
+      <div class="lf-head lf-head-today">
+        <div class="lf-hero">
+          <div class="lf-today-date">${F_LONG.format(L.toUTC(today))}</div>
+          ${bits.length ? `<div class="lf-sub">${bits.join(" · ")}</div>` : ""}
+        </div>
+        <div class="lf-actions">${moreMenu([["Log workout…", "add-workout"], ["Log sleep…", "add-sleep"], ["New task…", "add-task"],
+          ["Day score…", "score-settings"], ["Export backup", "export"], ["Import backup…", "import"]])}</div>
+      </div>
+      <div class="card lf-wheel-card" data-wheel-card>${wheelCard(d)}</div>
+      <button type="button" class="btn btn-primary btn-big lf-update-btn" data-action="update-day">Update my day</button>`;
 
     if (habits.length) {
       html += section("Habits", listCard(habits.map((h) => {
@@ -239,41 +242,169 @@
       }))));
     }
 
-    if (!habits.length && !dueTasks.length && !school.length && night) {
-      html += emptyCard(`Nothing else today. <a href="#life/habits">Add a habit</a> to check in daily.`);
-    } else if (!active.length && !d.tasks.length && !d.standards.length) {
-      html += emptyCard(`<a href="#life/habits">Add a habit</a> to start your daily check-in.`);
+    if (!active.length && !d.tasks.length && !d.standards.length) {
+      html += emptyCard(`<a href="#life/habits">Add a habit</a> to start colouring your days.`);
     }
     return html;
   };
 
-  // Last night's sleep in a couple of taps: bed and wake times start at your
-  // usual ones; tapping how you slept saves it.
-  function sleepQuick(d, today) {
-    const last = d.sleep.slice().sort((a, b) => (a.date < b.date ? 1 : -1))[0];
-    const bed = last ? last.bed : "23:00", wake = last ? last.wake : "07:00";
-    return `<div class="card lf-sleep" data-sleep-quick>
-      <div class="lf-sleep-head"><h3>Last night</h3><b class="lf-sleep-hours" data-sleep-hours>${fmtHours(L.sleepHours(bed, wake))}</b></div>
-      <div class="form-row lf-sleep-times">
-        ${field("Bed", timeInput("qbed", bed, "required"))}
-        ${field("Woke", timeInput("qwake", wake, "required"))}
-      </div>
-      <div class="lf-quality" role="group" aria-label="How did you sleep? Tap to save">
-        ${QUALITY.map(([v, e, t]) => `<button type="button" class="lf-q" data-action="quick-sleep" data-id="${v}" aria-label="${t}"><span>${e}</span><small>${t}</small></button>`).join("")}
-      </div>
-      <p class="field-hint">Tap how you slept to save.</p>
-    </div>`;
-  }
-  ACTIONS["quick-sleep"] = (q) => {
-    const box = root.querySelector("[data-sleep-quick]");
-    const bed = box.querySelector("[name=qbed]").value, wake = box.querySelector("[name=qwake]").value;
-    if (!bed || !wake) return alert("Set your bed and wake times first.");
-    const today = L.today();
-    const item = { id: LifeStore.uid(), date: today, bed, wake, quality: Number(q) };
-    if (!save((d) => { d.sleep = d.sleep.filter((s) => s.date !== today); d.sleep.push(item); })) {
-      toast(`Sleep saved: ${fmtHours(L.sleepHours(bed, wake))}`);
-    }
+  // ---------- Month wheel ----------
+  // One slice per day, clockwise from the top (day 1 first), filled with that
+  // day's score colour. Today is outlined in blue and pops out a little; the
+  // picked day lifts out further and its breakdown shows underneath.
+  const WHEEL = { size: 340, R: 128, r: 72, label: 150 };
+  const MONTH_NAME = UTC({ month: "long" });
+  const polar = (r, deg) => {
+    const a = (deg * Math.PI) / 180;
+    return [WHEEL.size / 2 + r * Math.cos(a), WHEEL.size / 2 + r * Math.sin(a)];
   };
+  const pt = (p) => `${p[0].toFixed(2)},${p[1].toFixed(2)}`;
+
+  // The wheel's SVG for a month. opts.pick = lifted day, opts.override =
+  // { date: colour } to draw a day in a different colour (for the check-in's
+  // summary animation). opts.small = no day numbers (compact).
+  function wheelSvg(d, month, opts = {}) {
+    const today = L.today();
+    const ms = L.monthScores(d, month, today);
+    const n = ms.days.length, step = 360 / n;
+    const { size, R, r } = WHEEL;
+    const slices = ms.days.map((day, i) => {
+      const a0 = -90 + i * step, a1 = a0 + step, mid = (a0 + a1) / 2;
+      const colour = (opts.override && opts.override[day.date]) || day.colour;
+      const path = `M${pt(polar(R, a0))}A${R},${R} 0 0 1 ${pt(polar(R, a1))}L${pt(polar(r, a1))}A${r},${r} 0 0 0 ${pt(polar(r, a0))}Z`;
+      const lift = (px) => polar(px, mid).map((v) => v - size / 2);
+      const [tx, ty] = lift(5), [lx, ly] = lift(13);
+      const lab = polar(WHEEL.label, mid);
+      const cls = ["lf-slice", `wd-${colour}`, day.date === today ? "today" : "", day.date === opts.pick ? "sel" : ""].filter(Boolean).join(" ");
+      const scoreText = day.future ? "not yet" : day.score === null ? "nothing logged" : `${day.score}%`;
+      return `<g class="${cls}" data-date="${day.date}" style="--tx:${tx.toFixed(1)}px;--ty:${ty.toFixed(1)}px;--lx:${lx.toFixed(1)}px;--ly:${ly.toFixed(1)}px"
+          role="button" aria-label="${fmtDay(day.date)}: ${scoreText}">
+          <path d="${path}"></path>
+          ${opts.small ? "" : `<text class="lf-wheel-num" x="${lab[0].toFixed(1)}" y="${lab[1].toFixed(1)}" text-anchor="middle" dominant-baseline="central">${i + 1}</text>`}
+        </g>`;
+    }).join("");
+    const c = ms.counts;
+    const counts = [[c.good, "green", "good"], [c.mid, "orange", "mid"], [c.bad, "red", "bad"]].filter(([k]) => k);
+    const line = (parts) => parts.map(([k, word, cls]) => `<tspan class="wt-${cls}">${k}</tspan> ${word}`).join(" · ");
+    const half = Math.ceil(counts.length / 2);
+    const [y, m] = month.split("-");
+    return `<svg class="lf-wheel-svg" viewBox="0 0 ${size} ${size}" role="group" aria-label="${MONTH_NAME.format(L.toUTC(month + "-01"))} ${y}: day scores">
+      <defs>
+        <radialGradient id="lfWheelCentre" cx="50%" cy="35%" r="70%"><stop offset="0%" class="lf-wc-hi"></stop><stop offset="100%" class="lf-wc-lo"></stop></radialGradient>
+        <linearGradient id="lfWheelRim" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" class="lf-rim-hi"></stop><stop offset="55%" class="lf-rim-mid"></stop><stop offset="100%" class="lf-rim-lo"></stop></linearGradient>
+      </defs>
+      <g class="lf-wheel-rot">
+        <circle class="lf-wheel-rim" cx="${size / 2}" cy="${size / 2}" r="${R + 4}"></circle>
+        ${slices}
+        <circle class="lf-wheel-hub" cx="${size / 2}" cy="${size / 2}" r="${r - 5}"></circle>
+      </g>
+      <text class="lf-wheel-month" x="${size / 2}" y="${size / 2 - (counts.length ? 14 : 0)}" text-anchor="middle" dominant-baseline="central">${MONTH_NAME.format(L.toUTC(month + "-01"))}${y !== today.slice(0, 4) ? " " + y : ""}</text>
+      ${counts.length ? `<text class="lf-wheel-sum" x="${size / 2}" y="${size / 2 + 8}" text-anchor="middle">${line(counts.slice(0, half))}</text>` : ""}
+      ${counts.length > half ? `<text class="lf-wheel-sum" x="${size / 2}" y="${size / 2 + 24}" text-anchor="middle">${line(counts.slice(half))}</text>` : ""}
+    </svg>`;
+  }
+
+  function wheelDetail(d) {
+    const date = wheelUi.pick;
+    if (!date) return `<p class="lf-wheel-hint">Tap a day to see its score.</p>`;
+    const s = L.dayScore(d, date);
+    const p = s.parts;
+    const bits = [];
+    if (p.habits) bits.push(`Habits <b>${p.habits.done}/${p.habits.total}</b>`);
+    if (p.tasks) bits.push(`Tasks <b>${p.tasks.done}/${p.tasks.total}</b>`);
+    if (p.sleep) bits.push(`Sleep <b>${fmtHours(p.sleep.hours)}</b>`);
+    const big = s.future ? `<span class="muted">Not yet</span>` : s.score === null ? `<span class="muted">Nothing logged</span>`
+      : `<span class="lf-score lf-score-${s.colour}">${s.score}%</span>`;
+    return `<div class="lf-wheel-day">
+        <div><div class="stat-label">${relDay(date)}</div><div class="lf-wheel-score">${big}</div>
+          ${bits.length ? `<div class="preview">${bits.map((x) => `<span>${x}</span>`).join("")}</div>` : ""}</div>
+        ${s.future ? "" : `<button type="button" class="btn" data-action="update-day" data-id="${date}">Open day</button>`}
+      </div>`;
+  }
+
+  function wheelCard(d) {
+    return `
+      <div class="lf-wheel-wrap">
+        <button type="button" class="lf-wheel-arrow" data-action="wheel-month" data-id="-1" aria-label="Previous month"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14.5 6l-6 6 6 6"/></svg></button>
+        <div class="lf-wheel" data-wheel tabindex="0" aria-label="Month wheel. Arrow keys move between days, Enter opens a day, Page Up/Down change month.">${wheelSvg(d, wheelUi.month, { pick: wheelUi.pick })}</div>
+        <button type="button" class="lf-wheel-arrow" data-action="wheel-month" data-id="1" aria-label="Next month"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9.5 6l6 6-6 6"/></svg></button>
+      </div>
+      <div class="lf-wheel-detail" data-wheel-detail>${wheelDetail(d)}</div>`;
+  }
+
+  // Lift a slice out (or put it back) without redrawing, so it animates
+  function pickDay(date) {
+    wheelUi.pick = date;
+    const card = root.querySelector("[data-wheel-card]");
+    if (!card) return;
+    card.querySelectorAll(".lf-slice").forEach((g) => g.classList.toggle("sel", g.dataset.date === date));
+    card.querySelector("[data-wheel-detail]").innerHTML = wheelDetail(D());
+  }
+
+  // Change month: the wheel spins in from the side you're heading
+  function changeMonth(dir, pick = null) {
+    wheelUi.month = L.addMonthsToMonth(wheelUi.month, dir);
+    wheelUi.pick = pick;
+    const card = root.querySelector("[data-wheel-card]");
+    if (!card) return;
+    const hadFocus = card.contains(document.activeElement) && document.activeElement.matches("[data-wheel]");
+    card.innerHTML = wheelCard(D());
+    if (hadFocus) card.querySelector("[data-wheel]").focus();
+    const rot = card.querySelector(".lf-wheel-rot");
+    if (canAnimate() && rot) {
+      rot.animate([{ transform: `rotate(${dir * 140}deg)`, opacity: 0.2 }, { transform: "rotate(0deg)", opacity: 1 }],
+        { duration: 650, easing: cssVar("--ease-spring") || "ease-out" });
+    }
+  }
+
+  ACTIONS["wheel-month"] = (dir) => changeMonth(Number(dir));
+
+  // Tap a slice: lift it out and show its breakdown; tap it again to open that day
+  root.addEventListener("click", (e) => {
+    const g = e.target.closest && e.target.closest(".lf-slice");
+    if (!g || !root.contains(g)) return;
+    const date = g.dataset.date;
+    if (wheelUi.pick === date && date <= L.today()) return openDayUpdate(date);
+    pickDay(wheelUi.pick === date ? null : date);
+  });
+  // Swipe the wheel sideways to change month
+  let swipeX = null, swipeY = 0;
+  root.addEventListener("pointerdown", (e) => { if (e.target.closest && e.target.closest("[data-wheel]")) { swipeX = e.clientX; swipeY = e.clientY; } });
+  root.addEventListener("pointerup", (e) => {
+    if (swipeX === null) return;
+    const dx = e.clientX - swipeX, dy = e.clientY - swipeY;
+    swipeX = null;
+    if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy) * 1.5) {
+      changeMonth(dx < 0 ? 1 : -1);
+      // the tap that ended the swipe shouldn't also pick a day
+      const block = (c) => c.stopImmediatePropagation();
+      root.addEventListener("click", block, { capture: true, once: true });
+      setTimeout(() => root.removeEventListener("click", block, { capture: true }), 350);
+    }
+  });
+  // Keyboard: arrows move the lifted day, Enter opens it, Page Up/Down change month
+  root.addEventListener("keydown", (e) => {
+    if (!e.target.matches || !e.target.matches("[data-wheel]")) return;
+    const today = L.today();
+    if (e.key === "ArrowRight" || e.key === "ArrowLeft" || e.key === "ArrowDown" || e.key === "ArrowUp") {
+      e.preventDefault();
+      const step = e.key === "ArrowRight" || e.key === "ArrowDown" ? 1 : -1;
+      const from = wheelUi.pick || (today.slice(0, 7) === wheelUi.month ? today : wheelUi.month + "-01");
+      const next = wheelUi.pick ? L.addDays(from, step) : from;
+      if (next.slice(0, 7) !== wheelUi.month) changeMonth(next > from ? 1 : -1, next);
+      pickDay(next);
+    } else if (e.key === "PageUp" || e.key === "PageDown") {
+      e.preventDefault();
+      changeMonth(e.key === "PageDown" ? 1 : -1);
+    } else if (e.key === "Enter" && wheelUi.pick && wheelUi.pick <= today) {
+      e.preventDefault();
+      openDayUpdate(wheelUi.pick);
+    }
+  });
+
+  // Filled in by "Update my day" (below); a placeholder until then
+  let openDayUpdate = () => {};
+  ACTIONS["update-day"] = (date) => openDayUpdate(date || L.today());
 
   ACTIONS["tick-habit"] = (id, el) => {
     const day = (el && el.dataset && el.dataset.date) || L.today(); // heatmap cells pass a past day
@@ -1267,13 +1398,6 @@
     if (e.key === "Escape") closeMenus();
   });
   document.addEventListener("click", (e) => { if (!root.contains(e.target)) closeMenus(); });
-  // Today's sleep card: keep the hours up to date while times change
-  root.addEventListener("change", (e) => {
-    const box = e.target.closest("[data-sleep-quick]");
-    if (!box) return;
-    const out = box.querySelector("[data-sleep-hours]");
-    out.textContent = fmtHours(L.sleepHours(box.querySelector("[name=qbed]").value, box.querySelector("[name=qwake]").value));
-  });
 
   // ================= Drawing =================
   // Same as PnL: the sub-tab bar is drawn once (so its bubble can slide); only

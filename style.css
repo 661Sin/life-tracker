@@ -26,6 +26,9 @@
   --day-bad: #ff453a;                     /* under 50% */
   --day-none: rgba(142, 142, 147, 0.38);  /* nothing logged */
   --day-future: rgba(255, 255, 255, 0.04);/* days still to come */
+  --wheel-divider: rgba(28, 28, 30, 0.9);  /* lines between wheel slices */
+  --wheel-shine: #ffffff;                 /* glass highlight on the wheel rim / hub (used with low opacity) */
+  --lift-shadow: rgba(0, 0, 0, 0.55);      /* shadow under a lifted slice */
 
   /* Backdrop behind everything (what the glass blurs): near-black to charcoal */
   --backdrop-top: #1c1c1e;
@@ -975,6 +978,59 @@ td.actions { width: 1%; white-space: nowrap; }
 .lf-score-bad { color: var(--day-bad); }
 .lf-score-none, .lf-score-future { color: var(--text-muted); }
 .lf-checks { display: flex; flex-direction: column; gap: 10px; }
+
+/* Today: month wheel (one slice per day, coloured by day score) */
+.lf-head-today { margin-bottom: 16px; }
+.lf-today-date { font-size: 22px; font-weight: 700; letter-spacing: -0.01em; }
+.lf-wheel-card { padding: 16px 12px 18px; margin-bottom: 14px; }
+.lf-wheel-wrap { display: grid; grid-template-columns: 40px 1fr 40px; align-items: center; }
+.lf-wheel { max-width: 380px; width: 100%; margin: 0 auto; border-radius: 50%; outline: none; touch-action: pan-y; }
+.lf-wheel:focus-visible { box-shadow: 0 0 0 2px var(--accent-edge); }
+.lf-wheel-svg { display: block; width: 100%; height: auto; overflow: visible; }
+.lf-wheel-arrow {
+  width: 36px; height: 36px; border-radius: 50%; display: grid; place-items: center; padding: 0; cursor: pointer;
+  color: var(--text); background: var(--glass-fill); border: 1px solid var(--glass-border);
+  transition: background var(--t-hover) ease, transform var(--t-hover) var(--ease-spring);
+}
+.lf-wheel-arrow:hover { background: var(--glass-fill-hover); }
+.lf-wheel-arrow:active { transform: scale(0.9); }
+.lf-wheel-arrow:focus-visible { outline: 2px solid var(--accent); }
+.lf-wheel-arrow svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.lf-wheel-rot { transform-box: view-box; transform-origin: 50% 50%; }
+.lf-wheel-rim { fill: none; stroke: url(#lfWheelRim); stroke-width: 7; }
+.lf-rim-hi { stop-color: var(--accent); stop-opacity: 0.55; }
+.lf-rim-mid { stop-color: var(--wheel-shine); stop-opacity: 0.12; }
+.lf-rim-lo { stop-color: var(--wheel-shine); stop-opacity: 0.05; }
+.lf-wheel-hub { fill: url(#lfWheelCentre); stroke: var(--accent-edge); stroke-width: 1; }
+.lf-wc-hi { stop-color: var(--wheel-shine); stop-opacity: 0.13; }
+.lf-wc-lo { stop-color: var(--wheel-shine); stop-opacity: 0.03; }
+.lf-slice { cursor: pointer; transition: transform 420ms var(--ease-spring); -webkit-tap-highlight-color: transparent; }
+.lf-slice path { stroke: var(--wheel-divider); stroke-width: 1.5; transition: fill 700ms ease, opacity 200ms ease; }
+.lf-slice:hover path { opacity: 0.85; }
+.wd-good path { fill: var(--day-good); }
+.wd-mid path { fill: var(--day-mid); }
+.wd-bad path { fill: var(--day-bad); }
+.wd-none path { fill: var(--day-none); }
+.wd-future path { fill: var(--day-future); }
+.wd-future { cursor: default; }
+.lf-slice.today { transform: translate(var(--tx), var(--ty)); }
+.lf-slice.today path { stroke: var(--accent); stroke-width: 2.5; }
+.lf-slice.sel { transform: translate(var(--lx), var(--ly)); }
+.lf-slice.sel path { filter: drop-shadow(0 3px 6px var(--lift-shadow)); }
+.lf-wheel-num { fill: var(--text-muted); font-size: 10px; font-family: inherit; font-variant-numeric: tabular-nums; pointer-events: none; }
+.lf-slice.today .lf-wheel-num { fill: var(--accent); font-weight: 700; }
+.lf-slice.sel .lf-wheel-num { fill: var(--text); font-weight: 700; }
+.lf-wheel-month { fill: var(--text); font-size: 17px; font-weight: 700; font-family: inherit; }
+.lf-wheel-sum { fill: var(--text-muted); font-size: 10.5px; font-family: inherit; }
+.wt-good { fill: var(--day-good); font-weight: 700; }
+.wt-mid { fill: var(--day-mid); font-weight: 700; }
+.wt-bad { fill: var(--day-bad); font-weight: 700; }
+.lf-wheel-detail { margin-top: 10px; padding: 12px 10px 0; border-top: 1px solid var(--border); min-height: 52px; }
+.lf-wheel-hint { margin: 6px 0 0; text-align: center; color: var(--text-muted); font-size: 13px; }
+.lf-wheel-day { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.lf-wheel-score { font-size: 26px; font-weight: 700; margin: 2px 0 4px; }
+.lf-wheel-score .muted { font-size: 16px; font-weight: 500; }
+.lf-update-btn { max-width: none; margin-bottom: 8px; }
 .lf-in-sheet { background: none; border: none; box-shadow: none; -webkit-backdrop-filter: none; backdrop-filter: none; padding: 0; }
 .lf-in-sheet .lf-row { padding-left: 4px; padding-right: 4px; }
 .lf-in-sheet .lf-row + .lf-row::before { left: 4px; right: 4px; }
@@ -1128,6 +1184,9 @@ td.actions { width: 1%; white-space: nowrap; }
   .lf-row + .lf-row::before { left: 16px; right: 16px; }
   .lf-toast { bottom: calc(96px + env(safe-area-inset-bottom)); }
   .lf-q small { display: none; }
+  .lf-wheel-wrap { grid-template-columns: 30px 1fr 30px; }
+  .lf-wheel-arrow { width: 30px; height: 30px; }
+  .lf-wheel-card { padding: 12px 6px 16px; }
   .form-row.lf-sleep-times, .form-row.lf-pair { grid-template-columns: 1fr 1fr; }
 
 
