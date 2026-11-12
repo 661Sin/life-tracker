@@ -295,6 +295,158 @@
       lead: tick(!!t.done, "tick-task", t.id, `${t.title} done`), title: esc(t.title), meta });
   }
 
+  // ---------- Habits ----------
+  const DAY_SHORT = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  const WEEK_ORDER = [1, 2, 3, 4, 5, 6, 0]; // Monday first
+  function scheduleText(h) {
+    const s = h.schedule || { type: "daily" };
+    if (s.type === "weekly") return `${L.weeklyTarget(h)}× a week`;
+    if (s.type !== "days") return "Every day";
+    const days = (s.days || []).slice().sort((a, b) => WEEK_ORDER.indexOf(a) - WEEK_ORDER.indexOf(b));
+    const key = days.join();
+    if (key === "1,2,3,4,5") return "Weekdays";
+    if (key === "6,0") return "Weekends";
+    if (days.length === 7) return "Every day";
+    return days.map((x) => DAY_SHORT[x]).join(", ");
+  }
+  const streakUnit = (h, n) => plural(n, L.isWeekly(h) ? "week" : "day");
+
+  PAGES.habits = (d) => {
+    const today = L.today();
+    const active = d.habits.filter((h) => !h.archived);
+    const archived = d.habits.filter((h) => h.archived);
+    const due = active.filter((h) => L.dueToday(h, today));
+    const done = due.filter((h) => L.isDone(h, today)).length;
+    let html = head({
+      label: "Done today",
+      big: due.length ? `${done}<span class="lf-of">/${due.length}</span>` : "—",
+      bar: due.length ? done / due.length : null,
+      primary: ["New habit", "add-habit"],
+      menu: archived.length ? [[`Archived habits (${archived.length})`, "archived-habits"]] : [],
+    });
+    if (!active.length) return html + emptyCard("No habits yet.");
+    html += listCard(active.map((h) => {
+      const on = L.isDone(h, today);
+      const s = L.streak(h, today);
+      return rowEl({
+        action: "open-habit", id: h.id, cls: on ? "done" : "",
+        lead: tick(on, "tick-habit", h.id, `${h.name} done today`),
+        title: `${h.emoji ? `<span class="lf-emoji">${esc(h.emoji)}</span>` : ""}${esc(h.name)}`,
+        meta: esc(scheduleText(h)) + (L.isWeekly(h) ? ` · ${L.weekCount(h, today)}/${L.weeklyTarget(h)} this week` : ""),
+        trail: s ? `🔥 ${s}<span class="muted"> ${L.isWeekly(h) ? "wk" : "d"}</span>` : `<span class="muted">—</span>`,
+      });
+    }));
+    return html;
+  };
+
+  // Stats + 12-week heatmap for the habit sheet. Tapping a past day ticks it.
+  function habitStats(h) {
+    const today = L.today();
+    const cols = L.heatmap(h, today, 12);
+    const monthOf = (s) => s.slice(0, 7);
+    const months = cols.map((col, i) => (i === 0 || monthOf(col[0].date) !== monthOf(cols[i - 1][0].date))
+      ? UTC({ month: "short" }).format(L.toUTC(col[0].date)) : "");
+    const cell = (c) => {
+      const cls = ["lf-hm-cell", c.done ? "done" : "", !c.scheduled ? "off" : "", c.future ? "future" : "", c.date === today ? "today" : ""].filter(Boolean).join(" ");
+      return c.future ? `<span class="${cls}"></span>`
+        : `<button type="button" class="${cls}" data-hm="${c.date}" aria-pressed="${c.done}" aria-label="${fmtDay(c.date)}${c.done ? ", done" : ""}"></button>`;
+    };
+    return `
+      <div class="lf-stats3">
+        <div><span class="stat-label">Streak</span><b>${streakUnit(h, L.streak(h, today))}</b></div>
+        <div><span class="stat-label">Best</span><b>${streakUnit(h, L.bestStreak(h, today))}</b></div>
+        <div><span class="stat-label">Last 30 days</span><b>${L.completion(h, today, 30)}%</b></div>
+      </div>
+      <div class="lf-hm" role="group" aria-label="Last 12 weeks. Tap a day to tick or untick it.">
+        <div class="lf-hm-months">${months.map((m) => `<span>${m}</span>`).join("")}</div>
+        <div class="lf-hm-body">
+          <div class="lf-hm-days" aria-hidden="true"><span>M</span><span></span><span>W</span><span></span><span>F</span><span></span><span></span></div>
+          <div class="lf-hm-grid">${cols.map((col) => `<div class="lf-hm-col">${col.map(cell).join("")}</div>`).join("")}</div>
+        </div>
+      </div>`;
+  }
+
+  const EMOJIS = ["📚", "💧", "🏃", "🧘", "💪", "🛏️", "🥗", "🧠", "✍️", "🎸", "🙏", "📵"];
+  function habitForm(id) {
+    const h = id ? LifeStore.get("habits", id) : { name: "", emoji: "", schedule: { type: "daily" } };
+    const s = h.schedule || { type: "daily" };
+    const days = s.type === "days" ? s.days || [] : [1, 2, 3, 4, 5];
+    const archived = !!h.archived;
+    const form = openForm(id ? `${h.emoji ? h.emoji + " " : ""}${h.name}` : "New habit", `
+      ${id ? `<div data-habit-stats>${habitStats(h)}</div>` : ""}
+      ${row2(field("Habit", textInput("name", h.name, 'required placeholder="e.g. Read 20 pages"')),
+             field("Emoji", textInput("emoji", h.emoji, 'maxlength="8" placeholder="📚"')))}
+      <div class="lf-emoji-pick">${EMOJIS.map((e) => `<button type="button" class="chip" data-emoji="${e}">${e}</button>`).join("")}</div>
+      ${fieldDiv("How often", seg("stype", [["daily", "Every day"], ["days", "Some days"], ["weekly", "Times a week"]], s.type || "daily"))}
+      <div data-days>${fieldDiv("On", `<div class="seg">${WEEK_ORDER.map((x) =>
+        `<label><input type="checkbox" name="day" value="${x}"${days.includes(x) ? " checked" : ""}><span>${DAY_SHORT[x].slice(0, 2)}</span></label>`).join("")}</div>`)}</div>
+      <div data-times>${fieldDiv("Times a week", seg("times", [1, 2, 3, 4, 5, 6, 7].map((n) => [n, n]), L.weeklyTarget(h)))}</div>`,
+    (v, f) => {
+      if (!v.name) return "Give the habit a name.";
+      let schedule = { type: "daily" };
+      if (v.stype === "days") {
+        const picked = [...f.querySelectorAll("[name=day]:checked")].map((x) => Number(x.value));
+        if (!picked.length) return "Pick at least one day.";
+        schedule = picked.length === 7 ? { type: "daily" } : { type: "days", days: picked };
+      } else if (v.stype === "weekly") schedule = { type: "weekly", times: Number(v.times) || 1 };
+      return LifeStore.commit((d) => {
+        const cur = id ? d.habits.find((x) => x.id === id) : null;
+        const item = { ...(cur || { id: LifeStore.uid(), created: L.today(), done: [] }), name: v.name, emoji: v.emoji, schedule };
+        if (archived) delete item.archived; // saving an archived habit restores it
+        upsertIn(d.habits, item);
+      });
+    }, {
+      submitLabel: archived ? "Restore" : id ? "Save" : "Add habit",
+      onDelete: !id ? null : archived
+        ? () => LifeStore.commit((d) => removeFrom(d.habits, id))
+        : () => LifeStore.commit((d) => { d.habits.find((x) => x.id === id).archived = L.today(); }),
+      deleteLabel: archived ? "Delete forever" : "Archive",
+      confirmText: archived ? "Delete this habit and all its history? This can't be undone."
+        : "Archive this habit? Its history is kept, and you can restore it from ⋯ → Archived habits.",
+    });
+
+    const sync = () => {
+      const t = (form.querySelector("[name=stype]:checked") || {}).value;
+      form.querySelector("[data-days]").hidden = t !== "days";
+      form.querySelector("[data-times]").hidden = t !== "weekly";
+    };
+    form.addEventListener("change", sync);
+    sync();
+    form.addEventListener("click", (e) => {
+      const em = e.target.closest("[data-emoji]");
+      if (em) { form.emoji.value = em.dataset.emoji; return; }
+      const cell = e.target.closest("[data-hm]");
+      if (cell && id) {
+        // Tick / untick a past day straight away (separate from Save)
+        const day = cell.dataset.hm;
+        LifeStore.commit((d) => {
+          const x = d.habits.find((y) => y.id === id);
+          x.done = x.done.includes(day) ? x.done.filter((y) => y !== day) : [...x.done, day].sort();
+        });
+        form.querySelector("[data-habit-stats]").innerHTML = habitStats(LifeStore.get("habits", id));
+        const again = form.querySelector(`[data-hm="${day}"]`);
+        if (again) again.focus();
+        render();
+      }
+    });
+  }
+
+  function archivedHabits() {
+    const list = D().habits.filter((h) => h.archived);
+    const body = openModal("Archived habits", list.length ? listCard(list.map((h) => rowEl({
+      action: "", id: h.id, title: `${h.emoji ? `<span class="lf-emoji">${esc(h.emoji)}</span>` : ""}${esc(h.name)}`,
+      meta: `Archived ${fmtDate(h.archived)} · best ${streakUnit(h, L.bestStreak(h, L.today()))}`,
+    })), "lf-in-sheet") : `<p class="muted">No archived habits.</p>`);
+    body.addEventListener("click", (e) => { const r = e.target.closest(".lf-row"); if (r) habitForm(r.dataset.id); });
+    body.addEventListener("keydown", (e) => { if (e.key === "Enter" && e.target.matches(".lf-row")) habitForm(e.target.dataset.id); });
+  }
+
+  Object.assign(ACTIONS, {
+    "add-habit": () => habitForm(),
+    "open-habit": (id) => habitForm(id),
+    "archived-habits": archivedHabits,
+  });
+
   // ================= Actions =================
   Object.assign(ACTIONS, {
     menu: (id, el) => {
