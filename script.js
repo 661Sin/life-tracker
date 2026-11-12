@@ -182,3 +182,40 @@ modal.addEventListener("click", (e) => {
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape" && !modal.hidden) closeModal();
 });
+
+// ---------- Offline app + updates (service worker, see sw.js) ----------
+// Only works on the live site (http/https), not when index.html is opened as a file.
+// When a new version has downloaded in the background, a glass toast offers it;
+// tapping it switches over and reloads once.
+if ("serviceWorker" in navigator && /^https?:$/.test(location.protocol)) {
+  let switching = false;
+  function offerUpdate(worker) {
+    if (document.querySelector(".update-toast")) return;
+    const t = document.createElement("button");
+    t.type = "button";
+    t.className = "update-toast";
+    t.textContent = "Update available, tap to refresh";
+    t.addEventListener("click", () => {
+      switching = true;
+      t.textContent = "Updating…";
+      worker.postMessage({ type: "SKIP_WAITING" });
+    });
+    document.body.appendChild(t);
+    if (canAnimate()) t.animate([{ opacity: 0, transform: "translate(-50%, 16px) scale(0.96)" }, { opacity: 1, transform: "translate(-50%, 0)" }],
+      { duration: 320, easing: cssVar("--ease-spring") || "ease-out" });
+  }
+  navigator.serviceWorker.addEventListener("controllerchange", () => { if (switching) location.reload(); });
+  navigator.serviceWorker.register("sw.js").then((reg) => {
+    if (reg.waiting && navigator.serviceWorker.controller) offerUpdate(reg.waiting);
+    reg.addEventListener("updatefound", () => {
+      const w = reg.installing;
+      if (!w) return;
+      w.addEventListener("statechange", () => {
+        if (w.state === "installed" && navigator.serviceWorker.controller) offerUpdate(w);
+      });
+    });
+    // Look for a new version whenever the app comes back to the front, and every 30 minutes
+    document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") reg.update().catch(() => {}); });
+    setInterval(() => reg.update().catch(() => {}), 30 * 60 * 1000);
+  }).catch(() => { /* offline mode unavailable; the site still works online */ });
+}

@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- Life Tracker icon: graphite backdrop, a grey glass panel, a blue progress ring.
+       Everything important sits inside the middle 70% so Android's round "maskable" crop keeps it. -->
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0.35" y2="1">
+      <stop offset="0" stop-color="#2c2c2e"/>
+      <stop offset="1" stop-color="#0b0b0d"/>
+    </linearGradient>
+    <radialGradient id="blob" cx="0.72" cy="0.78" r="0.55">
+      <stop offset="0" stop-color="#0a84ff" stop-opacity="0.28"/>
+      <stop offset="1" stop-color="#0a84ff" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="glass" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.16"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0.05"/>
+    </linearGradient>
+    <linearGradient id="edge" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.38"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0.08"/>
+    </linearGradient>
+    <linearGradient id="ring" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#5ab0ff"/>
+      <stop offset="1" stop-color="#0a84ff"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" fill="url(#bg)"/>
+  <rect width="512" height="512" fill="url(#blob)"/>
+  <!-- glass panel -->
+  <rect x="106" y="106" width="300" height="300" rx="76" fill="url(#glass)" stroke="url(#edge)" stroke-width="3"/>
+  <!-- ring track + progress (about 3/4) -->
+  <circle cx="256" cy="256" r="86" fill="none" stroke="#ffffff" stroke-opacity="0.12" stroke-width="26"/>
+  <circle cx="256" cy="256" r="86" fill="none" stroke="url(#ring)" stroke-width="26" stroke-linecap="round"
+          stroke-dasharray="405 541" transform="rotate(-90 256 256)"/>
+  <!-- centre dot -->
+  <circle cx="256" cy="256" r="18" fill="#f5f5f7"/>
+</svg>

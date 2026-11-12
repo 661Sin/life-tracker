@@ -1170,6 +1170,17 @@ td.actions { width: 1%; white-space: nowrap; }
   background: var(--glass-pop); -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur);
   border: 1px solid var(--glass-border-strong); box-shadow: var(--glass-highlight), var(--glass-shadow);
 }
+/* "Update available, tap to refresh" (script.js): same glass pill, but a button that stays until tapped */
+.update-toast {
+  position: fixed; left: 50%; bottom: calc(28px + env(safe-area-inset-bottom)); transform: translate(-50%, 0);
+  z-index: 310; max-width: calc(100vw - 32px); min-height: 44px; white-space: nowrap; cursor: pointer;
+  font: inherit; font-size: 14px; font-weight: 600; color: var(--text);
+  padding: 11px 20px; border-radius: var(--radius-pill);
+  background: var(--glass-pop); -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--accent-edge); box-shadow: var(--glass-highlight), var(--glass-shadow), 0 0 0 4px var(--accent-soft);
+  -webkit-tap-highlight-color: transparent;
+}
+.update-toast:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
 
 /* =====================================================================
    Journal section (journal.js): song of the week + saved feed
@@ -1490,7 +1501,8 @@ td.actions { width: 1%; white-space: nowrap; }
   .lf-big { font-size: 44px; }
   .lf-row { padding: 12px 16px; gap: 12px; }
   .lf-row + .lf-row::before { left: 16px; right: 16px; }
-  .lf-toast { bottom: calc(96px + env(safe-area-inset-bottom)); }
+  .lf-toast, .update-toast { bottom: calc(96px + env(safe-area-inset-bottom)); }
+  body.jr-mini-on .update-toast, body.jr-mini-on .lf-toast { bottom: calc(160px + env(safe-area-inset-bottom)); }
 
   /* Journal */
   .jr-head { margin-top: 22px; }
@@ -1570,12 +1582,12 @@ td.actions { width: 1%; white-space: nowrap; }
    ===================================================================== */
 /* No backdrop-filter support: solid dark panels instead of see-through ones */
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
-  .card, .side-tabs, .subnav, .modal-box, .gp-pop, .gp-pop.gp-sheet, .jr-play, .jr-gif, .jr-full-close, .jr-mini { background: var(--glass-solid); }
+  .card, .side-tabs, .subnav, .modal-box, .gp-pop, .gp-pop.gp-sheet, .jr-play, .jr-gif, .jr-full-close, .jr-mini, .update-toast, .lf-toast { background: var(--glass-solid); }
 }
 
 /* "Reduce transparency" turned on: more solid panels */
 @media (prefers-reduced-transparency: reduce) {
-  .card, .side-tabs, .subnav, .modal-box, .gp-pop, .gp-pop.gp-sheet, .jr-play, .jr-gif, .jr-full-close, .jr-mini {
+  .card, .side-tabs, .subnav, .modal-box, .gp-pop, .gp-pop.gp-sheet, .jr-play, .jr-gif, .jr-full-close, .jr-mini, .update-toast, .lf-toast {
     background: var(--glass-solid);
     -webkit-backdrop-filter: none;
     backdrop-filter: none;
