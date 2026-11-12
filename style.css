@@ -1313,6 +1313,11 @@ td.actions { width: 1%; white-space: nowrap; }
 .jr-play svg { width: 20px; height: 20px; fill: var(--text); margin-left: 2px; }
 .jr-play-sm { position: static; margin: 0 0 0 auto; width: 30px; height: 30px; }
 .jr-play-sm svg { width: 14px; height: 14px; }
+.jr-gif {
+  position: absolute; left: 8px; top: 8px; padding: 2px 7px; border-radius: 6px; font-size: 11px; font-weight: 700; letter-spacing: 0.04em;
+  color: var(--text); background: var(--glass-pop); border: 1px solid var(--glass-border-strong);
+  -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur);
+}
 .jr-site { display: flex; align-items: center; gap: 10px; padding: 14px 14px 4px; color: var(--text); text-decoration: none; }
 .jr-site-letter {
   width: 36px; height: 36px; flex-shrink: 0; display: grid; place-items: center; border-radius: 10px;
@@ -1539,12 +1544,12 @@ td.actions { width: 1%; white-space: nowrap; }
    ===================================================================== */
 /* No backdrop-filter support: solid dark panels instead of see-through ones */
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
-  .card, .side-tabs, .subnav, .modal-box, .gp-pop, .gp-pop.gp-sheet, .jr-play, .jr-full-close, .jr-mini { background: var(--glass-solid); }
+  .card, .side-tabs, .subnav, .modal-box, .gp-pop, .gp-pop.gp-sheet, .jr-play, .jr-gif, .jr-full-close, .jr-mini { background: var(--glass-solid); }
 }
 
 /* "Reduce transparency" turned on: more solid panels */
 @media (prefers-reduced-transparency: reduce) {
-  .card, .side-tabs, .subnav, .modal-box, .gp-pop, .gp-pop.gp-sheet, .jr-play, .jr-full-close, .jr-mini {
+  .card, .side-tabs, .subnav, .modal-box, .gp-pop, .gp-pop.gp-sheet, .jr-play, .jr-gif, .jr-full-close, .jr-mini {
     background: var(--glass-solid);
     -webkit-backdrop-filter: none;
     backdrop-filter: none;

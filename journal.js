@@ -195,7 +195,9 @@
     const video = J.isVideo(it);
     let media;
     if (it.kind === "photo") {
-      media = `<div class="jr-media" style="aspect-ratio:${a}"><img data-media="${esc(it.photo && it.photo.thumb)}" alt="" decoding="async"></div>`;
+      const anim = it.photo && it.photo.animated;
+      media = `<div class="jr-media" style="aspect-ratio:${a}"><img data-media="${esc(it.photo && it.photo.thumb)}" alt="" decoding="async"${anim ? " data-anim" : ""}>
+        ${anim ? `<span class="jr-gif">GIF</span>` : ""}</div>`;
     } else if (a) {
       media = `<div class="jr-media" style="aspect-ratio:${Math.max(0.4, a)}"><img data-src="${esc(it.thumb || it.link.thumb)}" alt="" decoding="async" referrerpolicy="no-referrer" data-thumb-of="${esc(it.id)}">
         ${video ? `<span class="jr-play">${ICON.play}</span>` : ""}</div>`;
@@ -264,7 +266,21 @@
     }, { rootMargin: "800px 0px" }).observe(sentinel);
   }
   // Fade pictures in once loaded; a dead link thumbnail (TikTok's expire) is asked for again once
-  root.addEventListener("load", (e) => { if (e.target.tagName === "IMG") e.target.classList.add("loaded"); }, true);
+  root.addEventListener("load", (e) => {
+    const img = e.target;
+    if (img.tagName !== "IMG") return;
+    img.classList.add("loaded");
+    // "Reduce motion": GIFs in the grid show their first frame (they still move when opened)
+    if (img.hasAttribute("data-anim") && !img.dataset.still && reduceMotion.matches) {
+      try {
+        const c = document.createElement("canvas");
+        c.width = img.naturalWidth; c.height = img.naturalHeight;
+        c.getContext("2d").drawImage(img, 0, 0);
+        img.dataset.still = "1";
+        img.src = c.toDataURL("image/jpeg", 0.85);
+      } catch (err) { /* leave it animated */ }
+    }
+  }, true);
   root.addEventListener("error", (e) => {
     const img = e.target;
     if (img.tagName !== "IMG") return;
@@ -339,6 +355,14 @@
     </div>`;
   }
 
+  // A friendly message when an animated picture is over the size limit ("" = fine)
+  async function fileProblem(file) {
+    const anim = await Media.animatedKind(file).catch(() => null);
+    if (!anim || file.size <= Media.ANIMATED_MAX) return "";
+    const what = anim === "gif" ? "GIF" : "animation";
+    return `That ${what} is ${J.bytes(file.size)}. Animated pictures can be up to ${Math.round(Media.ANIMATED_MAX / 1048576)} MB: try a shorter or smaller one.`;
+  }
+
   function itemForm(id, opts = {}) {
     const it = id ? JournalStore.get("items", id) : null;
     const kind = it ? it.kind : opts.kind;
@@ -390,11 +414,22 @@
         if (!it && !newFile) return "Choose a photo.";
         entry = { ...base, kind, title: base.title };
         if (newFile) {
-          const full = await Media.resizeImage(newFile, 1600, 0.8);
-          const small = await Media.resizeImage(full.blob, 600, 0.75);
-          const fullId = await Media.put(full.blob);
-          const thumbId = await Media.put(small.blob);
-          entry.photo = { full: fullId, thumb: thumbId, w: full.w, h: full.h };
+          const anim = await Media.animatedKind(newFile);
+          if (anim) {
+            // GIF / animated WebP / APNG: kept exactly as uploaded so it still moves
+            const problem = await fileProblem(newFile);
+            if (problem) return problem;
+            const { w, h } = await Media.imageSize(newFile);
+            const blob = newFile.type ? newFile : new Blob([newFile], { type: "image/gif" });
+            const id = await Media.put(blob);
+            entry.photo = { full: id, thumb: id, w, h, animated: anim };
+          } else {
+            const full = await Media.resizeImage(newFile, 1600, 0.8);
+            const small = await Media.resizeImage(full.blob, 600, 0.75);
+            const fullId = await Media.put(full.blob);
+            const thumbId = await Media.put(small.blob);
+            entry.photo = { full: fullId, thumb: thumbId, w: full.w, h: full.h };
+          }
           if (it) oldMedia = JournalStore.mediaOf(it);
         }
       }
@@ -440,7 +475,14 @@
       if (!it) form.url.focus();
     } else {
       const img = form.querySelector("[data-photo-preview]");
-      const show = (file) => { const u = URL.createObjectURL(file); img.onload = () => URL.revokeObjectURL(u); img.src = u; };
+      const errorBox = form.querySelector(".form-error");
+      const show = (file) => {
+        const u = URL.createObjectURL(file);
+        img.onload = () => URL.revokeObjectURL(u);
+        img.src = u;
+        // Too-big animated files are flagged straight away, not only on Save
+        fileProblem(file).then((p) => { errorBox.textContent = p; errorBox.hidden = !p; });
+      };
       if (newFile) show(newFile); else if (it) loadImg(img);
       form.querySelector("[data-photo-file]").addEventListener("change", (e) => {
         if (e.target.files[0]) { newFile = e.target.files[0]; show(newFile); }

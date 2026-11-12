@@ -165,6 +165,43 @@ const Media = {
   },
   async fromDataUrl(s) { return (await fetch(s)).blob(); },
 
+  // Animated pictures are stored as they are (a canvas would flatten them to one frame).
+  // Returns "gif" | "webp" | "png" for an animated file, else null. GIFs always count;
+  // WebP / PNG are animated when their header has an "ANIM" / "acTL" block.
+  ANIMATED_MAX: 20 * 1024 * 1024,
+  async animatedKind(file) {
+    const type = (file.type || "").toLowerCase();
+    const name = (file.name || "").toLowerCase();
+    if (type === "image/gif" || name.endsWith(".gif")) return "gif";
+    const webp = type === "image/webp" || name.endsWith(".webp");
+    const png = type === "image/png" || type === "image/apng" || /\.a?png$/.test(name);
+    if (!webp && !png) return null;
+    const head = new Uint8Array(await file.slice(0, 256 * 1024).arrayBuffer());
+    const find = (s) => {
+      const c = [...s].map((x) => x.charCodeAt(0));
+      outer: for (let i = 0; i <= head.length - 4; i++) {
+        for (let j = 0; j < 4; j++) if (head[i + j] !== c[j]) continue outer;
+        return i;
+      }
+      return -1;
+    };
+    if (webp) return find("ANIM") >= 0 ? "webp" : null;
+    const actl = find("acTL"), idat = find("IDAT");
+    return actl >= 0 && (idat < 0 || actl < idat) ? "png" : null;
+  },
+  // Width / height of a picture file without changing it
+  async imageSize(file) {
+    const u = URL.createObjectURL(file);
+    try {
+      return await new Promise((resolve, reject) => {
+        const img = new Image();
+        img.onload = () => resolve({ w: img.naturalWidth || 1, h: img.naturalHeight || 1 });
+        img.onerror = () => reject(new Error("That file isn't a picture this browser can read."));
+        img.src = u;
+      });
+    } finally { setTimeout(() => URL.revokeObjectURL(u), 0); }
+  },
+
   // Shrinks a photo: max `max` px wide (and tall), JPEG. Returns { blob, w, h }.
   async resizeImage(file, max = 1600, quality = 0.8) {
     // An <img> reads the file (browsers turn phone photos the right way up for it)
