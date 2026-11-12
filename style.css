@@ -4,33 +4,45 @@
    ===================================================================== */
 :root {
   /* Base colours */
-  --bg: #07070c;                          /* page base, also dark text on orange buttons */
+  /* Graphite grey with hints of blue (Apple dark mode style), 2026-11-12 */
+  --bg: #0b0b0d;                          /* page base and input fields */
   --text: #f5f5f7;                        /* main text */
-  --text-muted: rgba(235, 235, 245, 0.62);/* secondary text (brighter than before so it reads on glass) */
-  --accent: #f26b1d;                      /* orange highlight, also negatives */
-  --accent-glow: rgba(242, 107, 29, 0.35);/* soft halo under orange buttons */
-  --accent-shine: rgba(255, 255, 255, 0.35); /* top-edge shine on orange buttons */
-  --positive: #3fcf4f;                    /* green for gains */
+  --text-muted: rgba(235, 235, 245, 0.6); /* secondary text */
+  --accent: #0a84ff;                      /* system blue: primary buttons, links, focus, active tab, selected items */
+  --on-accent: #ffffff;                   /* text on blue */
+  --accent-soft: rgba(10, 132, 255, 0.22);/* blue-tinted glass (active tab bubble, selections) */
+  --accent-edge: rgba(10, 132, 255, 0.55);/* its edge */
+  --accent-glow: rgba(10, 132, 255, 0.32);/* soft halo under blue buttons */
+  --accent-shine: rgba(255, 255, 255, 0.3); /* top-edge shine on blue buttons */
+  --positive: #30d158;                    /* green: gains, done */
+  --negative: #ff453a;                    /* red: losses, overdue, errors, delete */
   --border: rgba(255, 255, 255, 0.10);    /* dividers and thin outlines */
   --card: rgba(255, 255, 255, 0.06);      /* light glass fill (no blur), e.g. phone table rows */
   --card-hover: rgba(255, 255, 255, 0.11);
 
-  /* Backdrop behind everything (what the glass blurs) */
-  --backdrop-top: #0c0f1f;
-  --backdrop-bottom: #050508;
-  --blob-blue: rgba(38, 84, 230, 0.42);
-  --blob-purple: rgba(128, 48, 205, 0.38);
-  --blob-orange: rgba(242, 107, 29, 0.20);
+  /* Day score colours (Life → Today wheel). Orange is ONLY used here. */
+  --day-good: #30d158;                    /* 80%+ */
+  --day-mid: #ff9f0a;                     /* 50–79% */
+  --day-bad: #ff453a;                     /* under 50% */
+  --day-none: rgba(142, 142, 147, 0.38);  /* nothing logged */
+  --day-future: rgba(255, 255, 255, 0.04);/* days still to come */
 
-  /* Glass panels */
+  /* Backdrop behind everything (what the glass blurs): near-black to charcoal */
+  --backdrop-top: #1c1c1e;
+  --backdrop-bottom: #000000;
+  --blob-grey: rgba(142, 142, 147, 0.16);
+  --blob-blue: rgba(10, 132, 255, 0.09);  /* only a faint hint of blue */
+  --blob-graphite: rgba(99, 99, 102, 0.14);
+
+  /* Glass panels: neutral grey tint */
   --glass-fill: rgba(255, 255, 255, 0.07);
   --glass-fill-hover: rgba(255, 255, 255, 0.11);
-  --glass-fill-strong: rgba(255, 255, 255, 0.16);  /* active-tab bubble */
-  --glass-tint-dark: rgba(8, 8, 16, 0.38);         /* darker glass behind dense tables */
-  --glass-solid: rgba(26, 26, 34, 0.96);           /* no-blur fallback / reduced transparency */
-  --glass-pop: rgba(30, 30, 42, 0.62);             /* picker popovers (a bit denser than cards) */
-  --glass-sheet: rgba(26, 26, 36, 0.78);           /* phone bottom sheets */
-  --scrim: rgba(7, 7, 12, 0.55);                   /* dims the page behind a bottom sheet */
+  --glass-fill-strong: rgba(255, 255, 255, 0.16);
+  --glass-tint-dark: rgba(0, 0, 0, 0.38);          /* darker glass behind dense tables */
+  --glass-solid: rgba(28, 28, 30, 0.97);           /* no-blur fallback / reduced transparency */
+  --glass-pop: rgba(44, 44, 46, 0.66);             /* picker popovers (a bit denser than cards) */
+  --glass-sheet: rgba(36, 36, 38, 0.82);           /* phone bottom sheets */
+  --scrim: rgba(0, 0, 0, 0.55);                    /* dims the page behind a bottom sheet */
   --glass-border: rgba(255, 255, 255, 0.14);
   --glass-border-strong: rgba(255, 255, 255, 0.24);
   --glass-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.18);  /* light catching the top edge */
@@ -89,10 +101,10 @@ body {
   will-change: transform;
   animation: drift var(--t-drift) ease-in-out infinite alternate;
 }
-.blob-1 { background: radial-gradient(circle, var(--blob-blue), transparent 65%); top: -28vmax; left: -18vmax; }
-.blob-2 { background: radial-gradient(circle, var(--blob-purple), transparent 65%); bottom: -32vmax; right: -22vmax;
+.blob-1 { background: radial-gradient(circle, var(--blob-grey), transparent 65%); top: -28vmax; left: -18vmax; }
+.blob-2 { background: radial-gradient(circle, var(--blob-graphite), transparent 65%); bottom: -32vmax; right: -22vmax;
           animation-duration: calc(var(--t-drift) * 1.3); animation-direction: alternate-reverse; }
-.blob-3 { background: radial-gradient(circle, var(--blob-orange), transparent 65%); width: 45vmax; height: 45vmax;
+.blob-3 { background: radial-gradient(circle, var(--blob-blue), transparent 65%); width: 45vmax; height: 45vmax;
           top: 35%; left: 40%; animation-duration: calc(var(--t-drift) * 0.8); }
 @keyframes drift {
   from { transform: translate(0, 0) scale(1); }
@@ -115,8 +127,8 @@ body {
   top: 0;
   z-index: 0;
   border-radius: var(--radius-pill);
-  background: var(--glass-fill-strong);
-  border: 1px solid var(--glass-border-strong);
+  background: var(--accent-soft);
+  border: 1px solid var(--accent-edge);
   box-shadow: var(--glass-highlight), var(--glass-shadow-sm);
   transform-origin: 0 0;
   pointer-events: none;
@@ -342,7 +354,7 @@ a { color: var(--accent); }
 .small { font-size: 12px; }
 p.muted { margin: 8px 0; }
 .pos { color: var(--positive); }
-.neg { color: var(--accent); }
+.neg { color: var(--negative); }
 .num { text-align: right; font-variant-numeric: tabular-nums; }
 
 /* ---------- Buttons (extra variants) ---------- */
@@ -350,7 +362,7 @@ p.muted { margin: 8px 0; }
 .btn-primary {
   background: var(--accent);
   border-color: transparent;
-  color: var(--bg);
+  color: var(--on-accent);
   font-weight: 600;
   box-shadow: inset 0 1px 0 var(--accent-shine), 0 6px 20px var(--accent-glow);
 }
@@ -358,7 +370,7 @@ p.muted { margin: 8px 0; }
 .btn-sm { font-size: 13px; padding: 5px 12px; }
 .btn-ghost { background: none; border-color: transparent; box-shadow: none; color: var(--text-muted); }
 .btn-ghost:hover { background: var(--card-hover); color: var(--text); }
-.btn-ghost.danger:hover { color: var(--accent); }
+.btn-ghost.danger:hover { color: var(--negative); }
 label.btn { display: inline-block; }
 .link {
   font: inherit;
@@ -442,7 +454,7 @@ label.btn { display: inline-block; }
 .capital-parts b { font-size: 16px; font-weight: 600; font-variant-numeric: tabular-nums; }
 
 .notice { display: block; margin-bottom: 12px; color: var(--text); text-decoration: none; }
-.notice.warn { box-shadow: inset 3px 0 0 var(--accent), var(--glass-highlight), var(--glass-shadow); color: var(--accent); }
+.notice.warn { box-shadow: inset 3px 0 0 var(--negative), var(--glass-highlight), var(--glass-shadow); color: var(--negative); }
 .empty { color: var(--text-muted); text-align: center; padding: 32px 22px; margin-bottom: 16px; }
 .total-line { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
 .backup p { margin-top: 0; }
@@ -463,7 +475,7 @@ label.btn { display: inline-block; }
   color: var(--text-muted);
   white-space: nowrap;
 }
-.badge.warn { color: var(--accent); border-color: var(--accent); }
+.badge.warn { color: var(--negative); border-color: var(--negative); }
 
 /* ---------- Tables ---------- */
 .table-card { padding: 4px 0; overflow-x: auto; margin-bottom: 16px; }
@@ -480,7 +492,7 @@ label.btn { display: inline-block; }
 .tbl th.num { text-align: right; }
 .tbl td { padding: 12px 14px; border-bottom: 1px solid var(--border); vertical-align: top; }
 .tbl tr:last-child td { border-bottom: none; }
-.tbl tr.overdue td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
+.tbl tr.overdue td:first-child { box-shadow: inset 3px 0 0 var(--negative); }
 /* Tap a row to open it (edit sheet with Delete at the bottom) */
 .tbl tr.tap { cursor: pointer; -webkit-tap-highlight-color: transparent; transition: background var(--t-hover) ease; }
 .tbl tr.tap:hover { background: var(--card-hover); }
@@ -513,7 +525,7 @@ td.actions { width: 1%; white-space: nowrap; }
 }
 .field textarea { resize: vertical; }
 .field input:focus, .field select:focus, .field textarea:focus, .bill input:focus { outline: none; border-color: var(--accent); }
-.form-error { color: var(--accent); font-size: 14px; }
+.form-error { color: var(--negative); font-size: 14px; }
 .form-actions { display: flex; justify-content: flex-end; gap: 8px; }
 .form-extra { display: flex; flex-wrap: wrap; gap: 8px; padding-top: 12px; border-top: 1px solid var(--border); }
 .preview {
@@ -544,7 +556,7 @@ td.actions { width: 1%; white-space: nowrap; }
 .chart { display: block; max-width: 100%; overflow: visible; }
 .chart-hit { fill: transparent; cursor: pointer; }
 .chart-pos { fill: var(--positive); }
-.chart-neg { fill: var(--accent); }
+.chart-neg { fill: var(--negative); }
 .chart-col path { opacity: 0.55; transition: opacity 0.15s ease; }
 .chart-col.sel path { opacity: 1; }
 .chart-col.sel .chart-label { fill: var(--text); }
@@ -568,7 +580,7 @@ td.actions { width: 1%; white-space: nowrap; }
 
 .preview b { color: var(--text); font-weight: 600; }
 .preview b.pos { color: var(--positive); }
-.preview b.neg { color: var(--accent); }
+.preview b.neg { color: var(--negative); }
 
 .filters { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; }
 .filters .field { width: 200px; }
@@ -623,7 +635,7 @@ td.actions { width: 1%; white-space: nowrap; }
 .acct-tile b { font-size: 20px; font-weight: 600; font-variant-numeric: tabular-nums; }
 .acct-tile:hover { background: var(--glass-fill-hover); }
 .acct-tile:active { transform: scale(var(--press-scale)); transition-duration: var(--t-press); }
-.acct-tile.active { background: var(--glass-fill-strong); border-color: var(--glass-border-strong); }
+.acct-tile.active { background: var(--accent-soft); border-color: var(--accent-edge); }
 /* Three actions in one row */
 .acct-actions { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 12px 0 4px; }
 
@@ -642,7 +654,7 @@ td.actions { width: 1%; white-space: nowrap; }
   -webkit-tap-highlight-color: transparent;
 }
 .chip:hover { color: var(--text); background: var(--glass-fill-hover); }
-.chip.active { color: var(--text); background: var(--glass-fill-strong); border-color: var(--glass-border-strong); }
+.chip.active { color: var(--text); background: var(--accent-soft); border-color: var(--accent-edge); }
 
 /* History: rows grouped under date headers; tap a row to edit it */
 .hist { padding: 4px 0 8px; margin-bottom: 12px; }
@@ -693,7 +705,7 @@ td.actions { width: 1%; white-space: nowrap; }
 .seg label { position: relative; }
 .seg input { position: absolute; opacity: 0; pointer-events: none; }
 .seg span { display: block; padding: 7px 18px; border-radius: var(--radius-pill); font-size: 14px; color: var(--text-muted); cursor: pointer; }
-.seg input:checked + span { background: var(--glass-fill-strong); color: var(--text); }
+.seg input:checked + span { background: var(--accent-soft); color: var(--text); box-shadow: inset 0 0 0 1px var(--accent-edge); }
 .seg input:focus-visible + span { outline: 2px solid var(--glass-border-strong); }
 .move-pick { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 8px; }
 .move-acct { text-align: center; padding: 9px 12px; background: var(--bg); border: 1px solid var(--border); border-radius: 10px; font-size: 15px; }
@@ -738,7 +750,7 @@ td.actions { width: 1%; white-space: nowrap; }
 }
 .gp-field:hover { background: var(--card); }
 .gp-field:focus-visible, .gp-open .gp-field { outline: none; border-color: var(--accent); }
-.gp-field.gp-invalid { border-color: var(--accent); }
+.gp-field.gp-invalid { border-color: var(--negative); }
 .gp-field svg { width: 18px; height: 18px; flex-shrink: 0; fill: none; stroke: var(--text-muted); stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 .gp-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .gp-placeholder { color: var(--text-muted); }
@@ -810,7 +822,7 @@ td.actions { width: 1%; white-space: nowrap; }
 .gp-day:focus-visible { outline: 2px solid var(--glass-border-strong); outline-offset: -2px; }
 .gp-day.out { color: var(--text-muted); opacity: 0.55; }
 .gp-day.today { box-shadow: inset 0 0 0 1.5px var(--accent); color: var(--accent); font-weight: 600; }
-.gp-day.sel { background: var(--accent); color: var(--bg); font-weight: 700; box-shadow: 0 0 0 0 transparent, 0 4px 14px var(--accent-glow); opacity: 1; }
+.gp-day.sel { background: var(--accent); color: var(--on-accent); font-weight: 700; box-shadow: 0 0 0 0 transparent, 0 4px 14px var(--accent-glow); opacity: 1; }
 .gp-day:disabled { opacity: 0.25; cursor: default; }
 .gp-chips { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border); }
 .gp-chips .chip, .gp-time-actions .chip { font-size: 13px; padding: 6px 12px; }
@@ -899,7 +911,7 @@ td.actions { width: 1%; white-space: nowrap; }
 .lf-row + .lf-row::before { content: ""; position: absolute; top: 0; left: 22px; right: 22px; border-top: 1px solid var(--border); }
 .lf-row:hover { background: var(--card-hover); }
 .lf-row:focus-visible { outline: 2px solid var(--glass-border-strong); outline-offset: -2px; }
-.lf-row.overdue { box-shadow: inset 3px 0 0 var(--accent); }
+.lf-row.overdue { box-shadow: inset 3px 0 0 var(--negative); }
 .lf-row.done .lf-title { color: var(--text-muted); }
 .lf-row.task.done .lf-title { text-decoration: line-through; }
 .lf-lead { display: flex; align-items: center; justify-content: center; min-width: 30px; }
@@ -910,7 +922,7 @@ td.actions { width: 1%; white-space: nowrap; }
 .lf-trail .muted { font-weight: 400; }
 .lf-emoji { margin-right: 8px; }
 .lf-big-emoji { font-size: 22px; line-height: 1; }
-.lf-flag { color: var(--accent); }
+.lf-flag { color: var(--negative); }
 .lf-code {
   font-size: 11px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-muted);
   border: 1px solid var(--glass-border); border-radius: 8px; padding: 4px 6px; min-width: 40px; text-align: center;
@@ -950,7 +962,7 @@ td.actions { width: 1%; white-space: nowrap; }
 .lf-q small { font-size: 11px; }
 .lf-q:hover { background: var(--glass-fill-hover); color: var(--text); }
 .lf-q:active { transform: scale(0.92); transition-duration: var(--t-press); }
-.lf-q.on, .lf-q:has(input:checked) { background: var(--glass-fill-strong); color: var(--text); border-color: var(--glass-border-strong); }
+.lf-q.on, .lf-q:has(input:checked) { background: var(--accent-soft); color: var(--text); border-color: var(--accent-edge); }
 .lf-q input { position: absolute; opacity: 0; pointer-events: none; }
 .lf-q:has(input:focus-visible) { outline: 2px solid var(--glass-border-strong); }
 .lf-quality-pick { margin-bottom: 0; }
@@ -1123,7 +1135,7 @@ td.actions { width: 1%; white-space: nowrap; }
     padding: 10px 14px;
     margin-bottom: 10px;
   }
-  .tbl tr.overdue { box-shadow: inset 3px 0 0 var(--accent); }
+  .tbl tr.overdue { box-shadow: inset 3px 0 0 var(--negative); }
   .tbl tr.overdue td:first-child { box-shadow: none; }
   .tbl td {
     display: flex;
