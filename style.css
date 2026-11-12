@@ -968,6 +968,13 @@ td.actions { width: 1%; white-space: nowrap; }
 .lf-quality-pick { margin-bottom: 0; }
 
 .lf-collapse { margin-top: 20px; }
+/* Day score colours */
+.lf-score { font-weight: 700; }
+.lf-score-good { color: var(--day-good); }
+.lf-score-mid { color: var(--day-mid); }
+.lf-score-bad { color: var(--day-bad); }
+.lf-score-none, .lf-score-future { color: var(--text-muted); }
+.lf-checks { display: flex; flex-direction: column; gap: 10px; }
 .lf-in-sheet { background: none; border: none; box-shadow: none; -webkit-backdrop-filter: none; backdrop-filter: none; padding: 0; }
 .lf-in-sheet .lf-row { padding-left: 4px; padding-right: 4px; }
 .lf-in-sheet .lf-row + .lf-row::before { left: 4px; right: 4px; }

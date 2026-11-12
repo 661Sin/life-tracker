@@ -203,6 +203,8 @@
     const night = d.sleep.find((s) => s.date === today);
 
     const subBits = [];
+    const score = L.dayScore(d, today);
+    if (score.score !== null) subBits.push(`<span class="lf-score lf-score-${score.colour}">${score.score}%</span> today`);
     if (streak > 1) subBits.push(`🔥 ${streak}-day streak`);
     if (night) subBits.push(`<button type="button" class="lf-chip" data-action="edit-sleep" data-id="${esc(night.id)}">😴 ${fmtHours(L.sleepHours(night.bed, night.wake))}</button>`);
     let html = head({
@@ -211,7 +213,7 @@
       sub: [habits.length ? (done === habits.length ? "All habits done" : "habits done") : plural(dueTasks.length, "task") + " due", ...subBits].join(" · "),
       bar: habits.length ? done / habits.length : null,
       primary: ["Log workout", "add-workout"],
-      menu: [["Log sleep…", "add-sleep"], ["New task…", "add-task"], ["Export backup", "export"], ["Import backup…", "import"]],
+      menu: [["Log sleep…", "add-sleep"], ["New task…", "add-task"], ["Day score…", "score-settings"], ["Export backup", "export"], ["Import backup…", "import"]],
     });
 
     if (!night) html += sleepQuick(d, today);
@@ -280,6 +282,27 @@
       h.done = h.done.includes(day) ? h.done.filter((x) => x !== day) : [...h.done, day].sort();
     });
   };
+
+  // ---------- Day score settings (Today ⋯) ----------
+  function scoreSettingsForm() {
+    const c = L.dayScoreSettings(D());
+    const check = (name, label, on) => `<label class="check"><input type="checkbox" name="${name}"${on ? " checked" : ""}> ${label}</label>`;
+    openForm("Day score", `
+      <div class="form-row lf-pair">
+        ${field("🟢 Green from (%)", numInput("good", c.good, 'min="1" max="100" step="1" inputmode="numeric"'))}
+        ${field("🟠 Orange from (%)", numInput("mid", c.mid, 'min="0" max="99" step="1" inputmode="numeric"'))}
+      </div>
+      <p class="field-hint">Below orange is 🔴 red. Nothing logged is ⚪ grey.</p>
+      ${fieldDiv("Counts towards the score", `<div class="lf-checks">
+        ${check("habits", "Habits done", c.habits)}${check("tasks", "Tasks due that day", c.tasks)}${check("sleep", "Sleep near my target", c.sleep)}</div>`)}`,
+    (v) => {
+      const good = Math.round(num(v.good)), mid = Math.round(num(v.mid));
+      if (!(good > mid && mid >= 0 && good <= 100)) return "Green must be above orange (between 0 and 100).";
+      if (!v.habits && !v.tasks && !v.sleep) return "Pick at least one part to count.";
+      return LifeStore.commit((dd) => { dd.settings.dayScore = { good, mid, habits: !!v.habits, tasks: !!v.tasks, sleep: !!v.sleep }; });
+    });
+  }
+  ACTIONS["score-settings"] = scoreSettingsForm;
 
   // ---------- Tasks (shared by Today and Plans) ----------
   const PRIORITY_LABEL = { high: "High", med: "Medium", low: "Low" };

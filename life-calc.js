@@ -132,6 +132,61 @@ const LifeCalc = {
     return this.isScheduled(h, today);
   },
 
+  // ================= Day score =================
+  // Worked out automatically for every day, never entered. Parts that apply:
+  //   habits: % of that day's scheduled habits done ("X a week" habits only
+  //           count on days they were ticked, so they never pull a day down;
+  //           a gym habit is how workouts count)
+  //   tasks:  % of tasks due that day that are done (skipped if none due)
+  //   sleep:  100 within 1h of the target, 50 within 2h, else 0 (skipped if not logged)
+  // Score = average of the parts that apply. Grey ("none") when nothing at all
+  // was logged that day. Which parts count and the colour thresholds are in
+  // settings.dayScore.
+  DAY_SCORE: { good: 80, mid: 50, habits: true, tasks: true, sleep: true },
+  dayScoreSettings(data) { return { ...this.DAY_SCORE, ...((data.settings || {}).dayScore || {}) }; },
+  habitActiveOn(h, date) { return date >= this.habitStart(h) && (!h.archived || date < h.archived); },
+
+  dayScore(data, date, today = this.today()) {
+    const cfg = this.dayScoreSettings(data);
+    if (date > today) return { date, future: true, colour: "future", score: null, parts: {} };
+    const parts = {};
+    const habits = data.habits.filter((h) => this.habitActiveOn(h, date) &&
+      (this.isWeekly(h) ? this.isDone(h, date) : this.isScheduled(h, date)));
+    if (cfg.habits && habits.length) {
+      const done = habits.filter((h) => this.isDone(h, date)).length;
+      parts.habits = { done, total: habits.length, pct: (done / habits.length) * 100 };
+    }
+    const due = data.tasks.filter((t) => t.due === date);
+    if (cfg.tasks && due.length) {
+      const done = due.filter((t) => t.done).length;
+      parts.tasks = { done, total: due.length, pct: (done / due.length) * 100 };
+    }
+    const night = data.sleep.find((s) => s.date === date);
+    if (cfg.sleep && night) {
+      const hours = this.sleepHours(night.bed, night.wake);
+      const target = Number((data.settings || {}).sleepTarget) || 8;
+      const off = Math.abs(hours - target);
+      parts.sleep = { hours, target, pct: off <= 1 ? 100 : off <= 2 ? 50 : 0 };
+    }
+    const logged = data.habits.some((h) => this.isDone(h, date)) || data.tasks.some((t) => t.done === date) ||
+      due.some((t) => t.done) || !!night || data.workouts.some((w) => w.date === date);
+    const list = Object.values(parts);
+    if (!logged || !list.length) return { date, colour: "none", score: null, parts, logged };
+    const score = Math.round(this.sum(list, (p) => p.pct) / list.length);
+    return { date, score, parts, logged, colour: score >= cfg.good ? "good" : score >= cfg.mid ? "mid" : "bad" };
+  },
+
+  daysInMonth(month) { const [y, m] = month.split("-").map(Number); return new Date(Date.UTC(y, m, 0)).getUTCDate(); },
+  addMonthsToMonth(month, k) { return this.addMonths(month + "-01", k).slice(0, 7); },
+  // Every day of a month ("YYYY-MM") with its score, plus colour counts
+  monthScores(data, month, today = this.today()) {
+    const days = [];
+    for (let i = 1; i <= this.daysInMonth(month); i++) days.push(this.dayScore(data, `${month}-${String(i).padStart(2, "0")}`, today));
+    const counts = { good: 0, mid: 0, bad: 0, none: 0, future: 0 };
+    days.forEach((d) => counts[d.colour]++);
+    return { month, days, counts };
+  },
+
   // ================= Tasks and goals =================
   PRIORITY: { high: 0, med: 1, low: 2 },
   sortTasks(list) {
