@@ -565,6 +565,133 @@ td.actions { width: 1%; white-space: nowrap; }
 .filters { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; }
 .filters .field { width: 200px; }
 
+/* ---------- Accounts page ---------- */
+/* Hero card: overall balance, ⋯ menu, Cash / Bank tiles (tap = filter history) */
+.acct-hero-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.btn-icon { font-size: 18px; line-height: 1; padding: 6px 12px; }
+.menu-wrap { position: relative; }
+.menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  z-index: 5;
+  min-width: 170px;
+  padding: 6px;
+  border-radius: var(--radius-sm);
+  background: var(--glass-solid);
+}
+.menu-item {
+  font: inherit;
+  font-size: 14px;
+  display: block;
+  width: 100%;
+  text-align: left;
+  color: var(--text);
+  background: none;
+  border: none;
+  border-radius: 10px;
+  padding: 9px 12px;
+  cursor: pointer;
+}
+.menu-item:hover { background: var(--glass-fill-hover); }
+.acct-hero .capital-value { margin-bottom: 16px; }
+.acct-tiles { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.acct-tile {
+  font: inherit;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  text-align: left;
+  color: var(--text);
+  background: var(--glass-fill);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--glass-highlight);
+  padding: 14px 16px;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: transform var(--t-hover) var(--ease-spring), background var(--t-hover) ease;
+}
+.acct-tile b { font-size: 20px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.acct-tile:hover { background: var(--glass-fill-hover); }
+.acct-tile:active { transform: scale(var(--press-scale)); transition-duration: var(--t-press); }
+.acct-tile.active { background: var(--glass-fill-strong); border-color: var(--glass-border-strong); }
+/* Three actions in one row */
+.acct-actions { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 12px 0 4px; }
+
+/* Filter chips (All / Cash / Bank) */
+.chips { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 12px; }
+.chip {
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-muted);
+  background: none;
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-pill);
+  padding: 5px 14px;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.chip:hover { color: var(--text); background: var(--glass-fill-hover); }
+.chip.active { color: var(--text); background: var(--glass-fill-strong); border-color: var(--glass-border-strong); }
+
+/* History: rows grouped under date headers; tap a row to edit it */
+.hist { padding: 4px 0 8px; margin-bottom: 12px; }
+.hist-date { font-size: 12px; font-weight: 600; color: var(--text-muted); padding: 14px 22px 4px; }
+.hist-row {
+  font: inherit;
+  display: grid;
+  grid-template-columns: 34px 1fr auto;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  text-align: left;
+  color: var(--text);
+  background: none;
+  border: none;
+  padding: 9px 22px;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.hist-row:hover { background: var(--card-hover); }
+.hist-icon {
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  font-size: 16px;
+  border-radius: 50%;
+  background: var(--glass-fill);
+  border: 1px solid var(--glass-border);
+  color: var(--text-muted);
+}
+.hist-main { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.hist-note { font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hist-meta { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-muted); min-width: 0; }
+.hist-amt { font-size: 15px; font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.show-more { display: flex; justify-content: center; margin-bottom: 8px; }
+
+/* Forms: Cash / Bank pill picker, Move direction with swap, Delete on the left */
+.seg {
+  display: inline-flex;
+  gap: 2px;
+  width: fit-content;
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  background: var(--bg);
+}
+.seg label { position: relative; }
+.seg input { position: absolute; opacity: 0; pointer-events: none; }
+.seg span { display: block; padding: 7px 18px; border-radius: var(--radius-pill); font-size: 14px; color: var(--text-muted); cursor: pointer; }
+.seg input:checked + span { background: var(--glass-fill-strong); color: var(--text); }
+.seg input:focus-visible + span { outline: 2px solid var(--glass-border-strong); }
+.move-pick { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 8px; }
+.move-acct { text-align: center; padding: 9px 12px; background: var(--bg); border: 1px solid var(--border); border-radius: 10px; font-size: 15px; }
+.form-delete { margin-right: auto; }
+[data-bills][hidden], [data-from-field][hidden] { display: none; }
+
 .cat-list { list-style: none; margin: 0; padding: 0; }
 .cat-list li {
   display: flex;
@@ -613,6 +740,8 @@ td.actions { width: 1%; white-space: nowrap; }
   .stats { grid-template-columns: 1fr 1fr; }
   .stat-value { font-size: 22px; }
   .capital-value { font-size: 38px; }
+  .hist-date { padding: 14px 16px 4px; }
+  .hist-row { padding: 9px 16px; gap: 10px; }
 
   /* Tables turn into a stack of small cards, each value labelled */
   .table-card { background: none; border: none; padding: 0; box-shadow: none; -webkit-backdrop-filter: none; backdrop-filter: none; }

@@ -97,12 +97,14 @@
 
   // Opens a form in the shared modal. onSubmit(values, form) returns an error
   // message to show, or nothing on success (then the modal closes and the page redraws).
+  // opts.onDelete: adds a Delete button at the bottom (asks first), e.g. when editing an entry.
   function openForm(title, fieldsHtml, onSubmit, opts = {}) {
     const body = openModal(title, `
       <form class="form">
         ${fieldsHtml}
         <div class="form-error" hidden></div>
         <div class="form-actions">
+          ${opts.onDelete ? `<button type="button" class="btn btn-ghost danger form-delete" data-form-delete>Delete</button>` : ""}
           <button type="button" class="btn" data-close-modal>Cancel</button>
           <button type="submit" class="btn btn-primary">${opts.submitLabel || "Save"}</button>
         </div>
@@ -122,6 +124,14 @@
       closeModal();
       render();
       if (opts.after) opts.after();
+    });
+    const del = form.querySelector("[data-form-delete]");
+    if (del) del.addEventListener("click", () => {
+      if (!confirm(`Delete this ${opts.deleteWhat || "entry"}? This can't be undone.`)) return;
+      const error = opts.onDelete();
+      if (error) { errorBox.textContent = error; errorBox.hidden = false; return; }
+      closeModal();
+      render();
     });
     return form;
   }
@@ -530,64 +540,86 @@
   };
 
   // ---------- Accounts ----------
+  // One hero card (overall balance + Cash / Bank tiles, ⋯ menu with Set balance),
+  // three actions (Add / Take out / Move), then the history grouped by date.
+  // Tapping a tile or chip filters the history to that account; tapping a row
+  // opens it for editing (Delete is at the bottom of that form).
+  const acctUi = { filter: "", shown: 20 };
+  const HISTORY_STEP = 20;
+  const touches = (t, acc) => !acc || t.accountId === acc || t.fromId === acc || t.toId === acc;
+
+  // One history row. With an account filter, a move shows as in or out of that
+  // account; with "All" it's neutral (the overall balance doesn't change).
+  function historyRow(t, acc) {
+    const isMove = t.type === "transfer";
+    const kind = isMove ? "Moved" : t.cashCount ? "Balance set" : t.amount < 0 ? "Taken out" : "Added";
+    const icon = isMove ? "⇄" : t.cashCount ? "=" : t.amount < 0 ? "−" : "+";
+    const amount = !isMove ? Number(t.amount) || 0
+      : acc === t.fromId ? -(Number(t.amount) || 0)
+      : acc === t.toId ? Number(t.amount) || 0 : null;
+    const tag = isMove ? `${esc(accountName(t.fromId))} → ${esc(accountName(t.toId))}` : esc(accountName(t.accountId));
+    const note = [t.from ? "From " + esc(t.from) : "", esc(t.note)].filter(Boolean).join(" · ");
+    return `<button type="button" class="hist-row" data-action="edit-transfer" data-id="${esc(t.id)}">
+        <span class="hist-icon" aria-hidden="true">${icon}</span>
+        <span class="hist-main">
+          <span class="hist-note">${note || kind}</span>
+          <span class="hist-meta">${note ? `<span>${kind}</span>` : ""}${badge(tag)}</span>
+        </span>
+        <span class="hist-amt ${amount === null ? "" : tone(amount)}">${amount === null ? money(t.amount) : signed(amount)}</span>
+      </button>`;
+  }
+  // Rows grouped under a small date header, newest first
+  function historyList(list, acc) {
+    let html = "", lastDate = null;
+    for (const t of list) {
+      if (t.date !== lastDate) {
+        html += `<div class="hist-date">${fmtDate(t.date)}</div>`;
+        lastDate = t.date;
+      }
+      html += historyRow(t, acc);
+    }
+    return `<div class="card hist">${html}</div>`;
+  }
+
   PAGES.accounts = (data, snap) => {
-    // Money added, taken out, deposited or received by hand (adjustments and
-    // transfers), newest first. "Set balance" corrections are listed on their
-    // own: they aren't real money in or out, just fixing the tracker's number.
-    const toRow = (t) => {
-      const isAdjust = t.type === "adjust";
-      const kind = !isAdjust ? (isDeposit(t) ? "Deposit" : "Transfer")
-        : t.cashCount ? "Balance set"
-        : t.amount < 0 ? (t.accountId === BANK_ID ? "Withdrawn" : "Taken out")
-        : t.accountId === BANK_ID ? "Received" : "Added";
-      const note = [t.from ? "From " + esc(t.from) : "", esc(t.note)].filter(Boolean).join(" · ");
-      return {
-        cells: [
-          fmtDate(t.date),
-          isAdjust ? esc(accountName(t.accountId)) : `${esc(accountName(t.fromId))} → ${esc(accountName(t.toId))}`,
-          kind,
-          note || muted("No note"),
-          isAdjust ? `<span class="${tone(t.amount)}">${signed(t.amount)}</span>` : money(t.amount),
-          rowActions([["Edit", "edit-transfer", t.id], ["Delete", "delete-transfer", t.id, "btn-ghost danger"]]),
-        ],
-      };
+    const acc = acctUi.filter;
+    const sorted = data.transfers.filter((t) => touches(t, acc)).sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
+    // "Set balance" corrections aren't money in or out, so they're listed on their own
+    const moves = sorted.filter((t) => !t.cashCount);
+    const corrections = sorted.filter((t) => t.cashCount);
+    const shown = moves.slice(0, acctUi.shown);
+    const tile = (id, label) => {
+      const value = snap.balances[id] || 0;
+      return `<button type="button" class="acct-tile${acc === id ? " active" : ""}" data-action="acct-filter" data-id="${id}" aria-pressed="${acc === id}">
+          <span class="stat-label">${label}</span>
+          <b class="${value < 0 ? "neg" : ""}">${money(value)}</b>
+        </button>`;
     };
-    const sorted = data.transfers.slice().sort((a, b) => (a.date < b.date ? 1 : -1));
-    const rows = sorted.filter((t) => !t.cashCount).map(toRow);
-    const corrections = sorted.filter((t) => t.cashCount).map(toRow);
-    const cash = snap.balances[CASH_ID] || 0;
-    const bank = snap.balances[BANK_ID] || 0;
-    const balanceCard = (label, value, hint, actions) => `
-      <div class="card">
-        <div class="stat-label">${label}</div>
-        <div class="capital-value ${value < 0 ? "neg" : ""}">${money(value)}</div>
-        <p class="muted">${hint}</p>
-        <div class="section-actions">${actions}</div>
-      </div>`;
+    const chip = (id, label) =>
+      `<button type="button" class="chip${acc === id ? " active" : ""}" data-action="acct-filter" data-id="${id}" aria-pressed="${acc === id}">${label}</button>`;
 
     return sectionHead("Accounts") +
-      `<div class="card capital">
-        <div class="stat-label">Overall balance</div>
-        <div class="capital-value ${snap.cashTotal < 0 ? "neg" : ""}">${money(snap.cashTotal)}</div>
-        <div class="capital-parts">
-          <div><span class="muted">Cash</span><b>${money(cash)}</b></div>
-          <div><span class="muted">Bank</span><b>${money(bank)}</b></div>
+      `<div class="card acct-hero">
+        <div class="acct-hero-head">
+          <div class="stat-label">Overall balance</div>
+          <div class="menu-wrap">
+            <button type="button" class="btn btn-ghost btn-icon" data-action="acct-menu" aria-label="More options" aria-haspopup="true">⋯</button>
+            <div class="menu card" hidden>
+              <button type="button" class="menu-item" data-action="set-balance">Set balance…</button>
+            </div>
+          </div>
         </div>
+        <div class="capital-value ${snap.cashTotal < 0 ? "neg" : ""}">${money(snap.cashTotal)}</div>
+        <div class="acct-tiles">${tile(CASH_ID, "Cash")}${tile(BANK_ID, "Bank")}</div>
       </div>
-      <div class="panels">
-        ${balanceCard("Cash", cash, "Sales, orders and expenses use Cash unless you pick Bank.",
-          btn("Set balance", "set-balance", CASH_ID) + btn("Take out", "spend-money") + btn("Add money", "add-money", "", "btn-primary"))}
-        ${balanceCard("Bank", bank, "Deposit cash, log transfers people send you, and money you withdraw for yourself.",
-          btn("Set balance", "set-balance", BANK_ID) + btn("Withdraw", "bank-spend") + btn("Received transfer", "bank-receive") + btn("Deposit cash", "bank-deposit", "", "btn-primary"))}
+      <div class="acct-actions">
+        ${btn("Add", "acct-add", "", "btn-primary")}${btn("Take out", "acct-take")}${btn("Move", "acct-move")}
       </div>
-      <p class="muted">“Take out” / “Withdraw” is for money you take for yourself: it doesn't lower your profit. Business costs (packaging, ads, fuel…) go in <a href="#pnl/spent">Spent</a> so they count against profit.</p>
-      <h3 class="group-title">Money in and out</h3>` +
-      table([{ label: "Date" }, { label: "Account" }, { label: "Type" }, { label: "Note" }, { label: "Amount", num: true }, { label: "" }],
-        rows, "Nothing added, taken out or deposited by hand yet.") +
-      (corrections.length ? `<h3 class="group-title">Balance corrections</h3>
-      <p class="muted">From “Set balance”. Not counted as money in or out; delete one to undo it.</p>` +
-      table([{ label: "Date" }, { label: "Account" }, { label: "Type" }, { label: "Note" }, { label: "Amount", num: true }, { label: "" }],
-        corrections, "") : "") +
+      <h3 class="group-title">Money in and out</h3>
+      <div class="chips">${chip("", "All")}${chip(CASH_ID, "Cash")}${chip(BANK_ID, "Bank")}</div>` +
+      (shown.length ? historyList(shown, acc) : empty(acc ? `Nothing in or out of ${esc(accountName(acc))} yet.` : "Nothing added, taken out or moved yet.")) +
+      (moves.length > shown.length ? `<div class="show-more">${btn(`Show more (${moves.length - shown.length} left)`, "acct-more")}</div>` : "") +
+      (corrections.length ? `<h3 class="group-title">Balance corrections</h3>` + historyList(corrections, acc) : "") +
       `<h3 class="group-title">Backup</h3>
       <div class="card backup">
         <p class="muted">Your data is saved in this browser only. Export a backup file now and then, and import it to restore your data or move it to another device.</p>
@@ -1003,6 +1035,7 @@
     });
   }
 
+  // Edit form for a move between accounts other than Cash ↔ Bank (older data)
   function transferForm(id) {
     if (Store.data.accounts.length < 2) return alert("Add a second account first (e.g. Bank) to transfer between them.");
     const t = id ? Store.get("transfers", id) : { fromId: CASH_ID, toId: Store.data.accounts.find((a) => a.id !== CASH_ID).id, amount: "", date: Calc.today(), note: "" };
@@ -1015,12 +1048,13 @@
       if (!(num(v.amount) > 0)) return "Enter an amount above 0.";
       const item = { id: t.id || Store.uid(), type: "transfer", fromId: v.fromId, toId: v.toId, amount: num(v.amount), date: v.date, note: v.note };
       return Store.commit((d) => upsertIn(d.transfers, item));
-    });
+    }, { onDelete: id ? () => Store.commit((d) => removeFrom(d.transfers, id)) : null });
   }
 
+  // Edit form for a "Set balance" correction (+/− amount)
   function adjustForm(id) {
     const t = id ? Store.get("transfers", id) : { accountId: CASH_ID, amount: "", date: Calc.today(), note: "" };
-    openForm(id ? "Edit adjustment" : "Manual adjustment", `
+    openForm(id ? (t.cashCount ? "Edit balance correction" : "Edit adjustment") : "Manual adjustment", `
       <p class="muted">Use a positive amount to add money and a negative amount (e.g. -20) to remove it.</p>
       ${row(field("Account", select("accountId", accountOptions(), t.accountId)),
             field("Amount (+/−)", `<input name="amount" type="number" step="0.01" inputmode="decimal" required value="${t.amount ?? ""}">`))}
@@ -1029,98 +1063,150 @@
       if (!num(v.amount)) return "Enter an amount that isn't 0.";
       const item = { ...t, id: t.id || Store.uid(), type: "adjust", accountId: v.accountId, amount: num(v.amount), date: v.date, note: v.note };
       return Store.commit((d) => upsertIn(d.transfers, item));
-    });
+    }, { onDelete: id ? () => Store.commit((d) => removeFrom(d.transfers, id)) : null, deleteWhat: t.cashCount ? "correction" : "entry" });
   }
 
-  // Bill values offered in the "Count by bills" helper on the Add / Spend money form
+  // Cash / Bank picker as a row of pill buttons (radio inputs underneath)
+  const accountPicker = (name, value, label) => `
+    <div class="field"><span class="field-label">${label}</span>
+      <div class="seg">${accountOptions().map(([v, t]) =>
+        `<label><input type="radio" name="${name}" value="${esc(v)}"${v === value ? " checked" : ""}><span>${esc(t)}</span></label>`).join("")}</div>
+    </div>`;
+
+  // Bill values offered in the "Count by bills" helper (shown when Cash is involved)
   const BILLS = [100, 50, 20, 10, 5];
 
-  // The kinds of money entry on the Accounts page. All typed as a positive number.
-  //   add / spend          : Cash adjustment, + or −
-  //   deposit              : transfer Cash → Bank (cash taken to the bank)
-  //   receive / bank-spend : Bank adjustment, + (someone sent you money) or −
+  // The three money actions on the Accounts page. All typed as a positive number.
+  // Saved in the same format as before, so older entries open in these forms:
+  //   add  : adjustment + on the account (Bank can note who sent it in `from`)
+  //   take : adjustment − on the account (money taken for yourself, not an expense)
+  //   move : transfer from one account to the other (Cash → Bank = a deposit)
   const MONEY_KINDS = {
-    add:          { title: "Add money",            edit: "Edit money added",    submit: "Add",     account: CASH_ID, sign: 1,  bills: true,  hint: "e.g. Starting cash, Put in from savings" },
-    spend:        { title: "Take out cash",        edit: "Edit cash taken out", submit: "Take out", account: CASH_ID, sign: -1, bills: true,  hint: "e.g. Personal use, Paid myself" },
-    deposit:      { title: "Deposit cash to bank", edit: "Edit deposit",        submit: "Deposit", bills: true,  hint: "e.g. Weekly deposit" },
-    receive:      { title: "Received transfer",    edit: "Edit transfer received", submit: "Add",  account: BANK_ID, sign: 1,  from: true,   hint: "e.g. Payment for 5 units" },
-    "bank-spend": { title: "Withdraw from bank",   edit: "Edit bank withdrawal", submit: "Withdraw", account: BANK_ID, sign: -1, hint: "e.g. Personal use, Paid myself" },
+    add:  { title: "Add money",  edit: "Edit money added",     submit: "Add",      sign: 1,  label: "Into", hint: "e.g. Starting cash, Payment for 5 units" },
+    take: { title: "Take out",   edit: "Edit money taken out", submit: "Take out", sign: -1, label: "From", hint: "e.g. Personal use, Paid myself" },
+    move: { title: "Move money", edit: "Edit move",            submit: "Move",                            hint: "e.g. Weekly deposit" },
   };
-  const moneyKindOf = (t) => isDeposit(t) ? "deposit"
-    : t.accountId === BANK_ID ? (t.amount < 0 ? "bank-spend" : "receive")
-    : (t.amount < 0 ? "spend" : "add");
+  const moneyKindOf = (t) => t.type === "transfer" ? "move" : t.amount < 0 ? "take" : "add";
 
-  // Add / spend / deposit / receive form. Cash entries are saved as adjustments
-  // (positive = in, negative = out); a deposit is a transfer Cash → Bank, so it
-  // lowers Cash and raises Bank by the same amount (overall balance unchanged).
   // "Count by bills": enter how many of each bill, and the Amount (and a note
   // like "2 × $50, 3 × $20" if the note is empty) is filled in for you.
   function moneyForm(kind, id) {
-    const t = id ? Store.get("transfers", id) : { amount: "", date: Calc.today(), note: "", from: "" };
+    const t = id ? Store.get("transfers", id)
+      : { amount: "", date: Calc.today(), note: "", from: "", accountId: CASH_ID, fromId: CASH_ID, toId: BANK_ID };
     if (id) kind = moneyKindOf(t);
     const k = MONEY_KINDS[kind];
-    const cashNow = (Calc.balances(Store.data)[CASH_ID] || 0) + (id && kind === "deposit" ? Number(t.amount) || 0 : 0);
+    const isMove = kind === "move";
+    // Balances without this entry, so the preview is right when editing
+    const balances = Calc.balances({ ...Store.data, transfers: Store.data.transfers.filter((x) => x.id !== t.id) });
     const form = openForm(id ? k.edit : k.title, `
-      ${kind === "deposit" ? `<p class="muted">Moves money from Cash to Bank. Cash on hand in the tracker: <b>${money(cashNow)}</b></p>` : ""}
-      ${k.bills ? `<p class="field-label">Count by bills (optional)</p>
-      <div class="bills">
-        ${BILLS.map((b) => `<label class="bill"><span>$${b} ×</span>${qtyInput("bill" + b, "", 'placeholder="0" data-bill="' + b + '"', 0)}</label>`).join("")}
-        <label class="bill"><span>Coins / other $</span>${moneyInput("billOther", "", 'placeholder="0" data-bill="1"')}</label>
-      </div>` : ""}
-      ${k.from ? field("From (who sent it)", textInput("from", t.from || "", 'placeholder="e.g. a customer\'s name"')) : ""}
+      ${isMove ? `<div class="field"><span class="field-label">Move</span>
+        <div class="move-pick">
+          <span class="move-acct" data-from-label></span>
+          <button type="button" class="btn btn-icon" data-swap aria-label="Swap direction">⇄</button>
+          <span class="move-acct" data-to-label></span>
+        </div>
+        <input type="hidden" name="fromId" value="${esc(t.fromId)}"><input type="hidden" name="toId" value="${esc(t.toId)}">
+      </div>` : accountPicker("accountId", t.accountId || CASH_ID, k.label)}
+      ${kind === "take" ? `<p class="muted">For money you take for yourself. Business costs go in Spent.</p>` : ""}
+      <div data-bills>
+        <p class="field-label">Count by bills (optional)</p>
+        <div class="bills">
+          ${BILLS.map((b) => `<label class="bill"><span>$${b} ×</span>${qtyInput("bill" + b, "", 'placeholder="0" data-bill="' + b + '"', 0)}</label>`).join("")}
+          <label class="bill"><span>Coins / other $</span>${moneyInput("billOther", "", 'placeholder="0" data-bill="1"')}</label>
+        </div>
+      </div>
+      ${kind === "add" ? `<div data-from-field>${field("From (optional)", textInput("from", t.from || "", `placeholder="e.g. a customer's name"`))}</div>` : ""}
       ${row(field("Amount", moneyInput("amount", t.amount === "" ? "" : Math.abs(t.amount), "required")),
             field("Date", dateInput("date", t.date, "required")))}
-      ${field("Note (optional)", textInput("note", t.note, `placeholder="${k.hint}"`))}`,
+      ${field("Note (optional)", textInput("note", t.note, `placeholder="${k.hint}"`))}
+      <div class="preview" data-preview></div>`,
     (v) => {
       if (!(num(v.amount) > 0)) return "Enter an amount above 0.";
       const base = { id: t.id || Store.uid(), date: v.date, note: v.note };
-      const item = kind === "deposit"
-        ? { ...base, type: "transfer", fromId: CASH_ID, toId: BANK_ID, amount: num(v.amount) }
-        : { ...base, type: "adjust", accountId: k.account, amount: k.sign * num(v.amount), ...(k.from ? { from: v.from } : {}) };
+      let item;
+      if (isMove) {
+        item = { ...base, type: "transfer", fromId: v.fromId, toId: v.toId, amount: num(v.amount) };
+      } else {
+        item = { ...base, type: "adjust", accountId: v.accountId, amount: k.sign * num(v.amount) };
+        if (kind === "add" && v.accountId !== CASH_ID && v.from) item.from = v.from;
+      }
       return Store.commit((d) => upsertIn(d.transfers, item));
-    }, { submitLabel: k.submit });
+    }, { submitLabel: id ? "Save" : k.submit, onDelete: id ? () => Store.commit((d) => removeFrom(d.transfers, id)) : null });
 
-    if (!k.bills) return;
+    const billsWrap = form.querySelector("[data-bills]");
+    const fromWrap = form.querySelector("[data-from-field]");
+    const preview = form.querySelector("[data-preview]");
+    const update = () => {
+      const v = formValues(form);
+      const src = isMove ? v.fromId : v.accountId;
+      billsWrap.hidden = src !== CASH_ID;
+      if (fromWrap) fromWrap.hidden = v.accountId === CASH_ID;
+      if (isMove) {
+        form.querySelector("[data-from-label]").textContent = accountName(v.fromId);
+        form.querySelector("[data-to-label]").textContent = accountName(v.toId);
+      }
+      const now = balances[src] || 0;
+      const after = now + (isMove ? -1 : k.sign) * num(v.amount);
+      preview.innerHTML = `<span>${esc(accountName(src))} <b>${money(now)}</b>${num(v.amount) ? ` → <b class="${after < 0 ? "neg" : ""}">${money(after)}</b>` : ""}</span>`;
+    };
+    form.addEventListener("click", (e) => {
+      if (!e.target.closest("[data-swap]")) return;
+      const a = form.fromId.value;
+      form.fromId.value = form.toId.value;
+      form.toId.value = a;
+      update();
+    });
+    form.addEventListener("change", update);
 
     let autoNote = ""; // the note we filled in, so we only replace our own text
     form.addEventListener("input", (e) => {
-      if (!e.target.dataset.bill) return;
-      let total = 0;
-      const parts = [];
-      for (const b of BILLS) {
-        const n = Math.max(0, Math.floor(num(form["bill" + b].value)));
-        if (n) { total += n * b; parts.push(`${n} × $${b}`); }
+      if (e.target.dataset.bill) {
+        let total = 0;
+        const parts = [];
+        for (const b of BILLS) {
+          const n = Math.max(0, Math.floor(num(form["bill" + b].value)));
+          if (n) { total += n * b; parts.push(`${n} × $${b}`); }
+        }
+        const other = Math.max(0, num(form.billOther.value));
+        if (other) { total += other; parts.push(`${money(other)} coins/other`); }
+        form.amount.value = total ? Calc.round2(total) : "";
+        if (form.note.value === autoNote) form.note.value = autoNote = parts.join(", ");
       }
-      const other = Math.max(0, num(form.billOther.value));
-      if (other) { total += other; parts.push(`${money(other)} coins/other`); }
-      form.amount.value = total ? Calc.round2(total) : "";
-      if (form.note.value === autoNote) form.note.value = autoNote = parts.join(", ");
+      update();
     });
+    update();
   }
 
-  // "Set balance" (Cash or Bank): enter what you actually have now; the
-  // difference is saved as one adjustment (flagged cashCount), so history and
-  // profits stay intact and deleting that entry undoes it.
+  // "Set balance": pick Cash or Bank (unless given), enter what you actually
+  // have now; the difference is saved as one adjustment (flagged cashCount), so
+  // history and profits stay intact and deleting that entry undoes it.
   function setBalanceForm(accountId) {
-    const balance = Calc.balances(Store.data)[accountId] || 0;
-    const name = accountName(accountId);
-    const form = openForm(`Set ${name} balance`, `
-      <p class="muted">Enter how much you actually have in ${esc(name)} right now. The difference from the tracker's balance is saved as one adjustment, so the two match. It's listed under "Balance corrections" (not money in and out); delete it there to undo.</p>
-      <div class="preview"><span>${esc(name)} balance in tracker <b>${money(balance)}</b></span></div>
-      ${row(field(`${esc(name)} you have now`, moneyInput("counted", "", "required")), field("Date", dateInput("date", Calc.today(), "required")))}
+    const balances = Calc.balances(Store.data);
+    const form = openForm("Set balance", `
+      <p class="muted">Enter how much you actually have right now. The difference is saved as one correction (not counted as money in or out). Delete it under "Balance corrections" to undo.</p>
+      ${accountId ? `<input type="hidden" name="accountId" value="${esc(accountId)}">` : accountPicker("accountId", CASH_ID, "Account")}
+      <div class="preview" data-now></div>
+      ${row(field("You have now", moneyInput("counted", "", "required")), field("Date", dateInput("date", Calc.today(), "required")))}
       <div class="preview" data-preview></div>`,
     (v) => {
+      const balance = balances[v.accountId] || 0;
       const diff = Calc.round2(num(v.counted) - balance);
       if (diff === 0) return "That matches the tracker already, so nothing needs adjusting.";
-      const item = { id: Store.uid(), type: "adjust", cashCount: true, accountId, amount: diff, date: v.date, note: `Balance set to ${money(num(v.counted))}` };
+      const item = { id: Store.uid(), type: "adjust", cashCount: true, accountId: v.accountId, amount: diff, date: v.date, note: `Balance set to ${money(num(v.counted))}` };
       return Store.commit((d) => d.transfers.push(item));
     }, { submitLabel: "Set balance" });
+    const nowBox = form.querySelector("[data-now]");
     const preview = form.querySelector("[data-preview]");
-    form.addEventListener("input", () => {
+    const update = () => {
       const v = formValues(form);
+      const balance = balances[v.accountId] || 0;
+      nowBox.innerHTML = `<span>${esc(accountName(v.accountId))} balance in tracker <b>${money(balance)}</b></span>`;
       const diff = num(v.counted) - balance;
-      preview.innerHTML = v.counted === "" ? "" : `<span>Adjustment <b class="${tone(diff)}">${signed(diff)}</b></span>`;
-    });
+      preview.innerHTML = v.counted === "" ? "" : `<span>Correction <b class="${tone(diff)}">${signed(diff)}</b></span>`;
+    };
+    form.addEventListener("input", update);
+    form.addEventListener("change", update);
+    update();
   }
 
   // ---------- Set stock (count what you actually have) ----------
@@ -1256,15 +1342,27 @@
     "delete-stock-adj": (id) => confirmDelete("stock adjustment", "stockAdjustments", id),
     "add-transfer": () => transferForm(),
     "add-adjust": () => adjustForm(),
-    "add-money": () => moneyForm("add"),
-    "spend-money": () => moneyForm("spend"),
-    "bank-deposit": () => moneyForm("deposit"),
-    "bank-receive": () => moneyForm("receive"),
-    "bank-spend": () => moneyForm("bank-spend"),
+    "acct-add": () => moneyForm("add"),
+    "acct-take": () => moneyForm("take"),
+    "acct-move": () => moneyForm("move"),
+    // Tile / chip: show only that account's entries (tap the active tile again for All)
+    "acct-filter": (id = "") => {
+      acctUi.filter = acctUi.filter === id && id ? "" : id;
+      acctUi.shown = HISTORY_STEP;
+      render();
+    },
+    "acct-more": () => { acctUi.shown += HISTORY_STEP; render(); },
+    "acct-menu": () => {
+      const menu = root.querySelector(".acct-hero .menu");
+      if (menu) menu.hidden = !menu.hidden;
+    },
     "edit-transfer": (id) => {
       const t = Store.get("transfers", id);
-      if (t.type !== "adjust") return isDeposit(t) ? moneyForm(null, id) : transferForm(id);
-      return t.cashCount ? adjustForm(id) : moneyForm(null, id);
+      if (!t) return;
+      if (t.cashCount) return adjustForm(id);
+      const builtIn = (x) => x === CASH_ID || x === BANK_ID;
+      if (t.type === "transfer" && !(builtIn(t.fromId) && builtIn(t.toId))) return transferForm(id);
+      return moneyForm(null, id);
     },
     "delete-transfer": (id) => confirmDelete("entry", "transfers", id),
     export: () => {
@@ -1297,7 +1395,12 @@
 
   root.addEventListener("click", (e) => {
     const b = e.target.closest("[data-action]");
+    // Close an open ⋯ menu on any click outside its button
+    if (!b || b.dataset.action !== "acct-menu") root.querySelectorAll(".menu:not([hidden])").forEach((m) => { m.hidden = true; });
     if (b && ACTIONS[b.dataset.action]) ACTIONS[b.dataset.action](b.dataset.id);
+  });
+  document.addEventListener("click", (e) => {
+    if (!root.contains(e.target)) root.querySelectorAll(".menu:not([hidden])").forEach((m) => { m.hidden = true; });
   });
   // Chart: hover with a mouse, tap on a phone
   root.addEventListener("mouseover", (e) => {
