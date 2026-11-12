@@ -531,13 +531,14 @@
 
   // ---------- Accounts ----------
   PAGES.accounts = (data, snap) => {
-    // Money added, spent, deposited or received by hand (adjustments and
-    // transfers), newest first
-    const rows = data.transfers.slice().sort((a, b) => (a.date < b.date ? 1 : -1)).map((t) => {
+    // Money added, taken out, deposited or received by hand (adjustments and
+    // transfers), newest first. "Set balance" corrections are listed on their
+    // own: they aren't real money in or out, just fixing the tracker's number.
+    const toRow = (t) => {
       const isAdjust = t.type === "adjust";
       const kind = !isAdjust ? (isDeposit(t) ? "Deposit" : "Transfer")
         : t.cashCount ? "Balance set"
-        : t.amount < 0 ? "Spent"
+        : t.amount < 0 ? (t.accountId === BANK_ID ? "Withdrawn" : "Taken out")
         : t.accountId === BANK_ID ? "Received" : "Added";
       const note = [t.from ? "From " + esc(t.from) : "", esc(t.note)].filter(Boolean).join(" · ");
       return {
@@ -550,7 +551,10 @@
           rowActions([["Edit", "edit-transfer", t.id], ["Delete", "delete-transfer", t.id, "btn-ghost danger"]]),
         ],
       };
-    });
+    };
+    const sorted = data.transfers.slice().sort((a, b) => (a.date < b.date ? 1 : -1));
+    const rows = sorted.filter((t) => !t.cashCount).map(toRow);
+    const corrections = sorted.filter((t) => t.cashCount).map(toRow);
     const cash = snap.balances[CASH_ID] || 0;
     const bank = snap.balances[BANK_ID] || 0;
     const balanceCard = (label, value, hint, actions) => `
@@ -572,13 +576,18 @@
       </div>
       <div class="panels">
         ${balanceCard("Cash", cash, "Sales, orders and expenses use Cash unless you pick Bank.",
-          btn("Set balance", "set-balance", CASH_ID) + btn("Spend", "spend-money") + btn("Add money", "add-money", "", "btn-primary"))}
-        ${balanceCard("Bank", bank, "Deposit cash, log transfers people send you, and money spent from the bank.",
-          btn("Set balance", "set-balance", BANK_ID) + btn("Spend", "bank-spend") + btn("Received transfer", "bank-receive") + btn("Deposit cash", "bank-deposit", "", "btn-primary"))}
+          btn("Set balance", "set-balance", CASH_ID) + btn("Take out", "spend-money") + btn("Add money", "add-money", "", "btn-primary"))}
+        ${balanceCard("Bank", bank, "Deposit cash, log transfers people send you, and money you withdraw for yourself.",
+          btn("Set balance", "set-balance", BANK_ID) + btn("Withdraw", "bank-spend") + btn("Received transfer", "bank-receive") + btn("Deposit cash", "bank-deposit", "", "btn-primary"))}
       </div>
+      <p class="muted">“Take out” / “Withdraw” is for money you take for yourself: it doesn't lower your profit. Business costs (packaging, ads, fuel…) go in <a href="#pnl/spent">Spent</a> so they count against profit.</p>
       <h3 class="group-title">Money in and out</h3>` +
       table([{ label: "Date" }, { label: "Account" }, { label: "Type" }, { label: "Note" }, { label: "Amount", num: true }, { label: "" }],
-        rows, "Nothing added, spent or deposited by hand yet.") +
+        rows, "Nothing added, taken out or deposited by hand yet.") +
+      (corrections.length ? `<h3 class="group-title">Balance corrections</h3>
+      <p class="muted">From “Set balance”. Not counted as money in or out; delete one to undo it.</p>` +
+      table([{ label: "Date" }, { label: "Account" }, { label: "Type" }, { label: "Note" }, { label: "Amount", num: true }, { label: "" }],
+        corrections, "") : "") +
       `<h3 class="group-title">Backup</h3>
       <div class="card backup">
         <p class="muted">Your data is saved in this browser only. Export a backup file now and then, and import it to restore your data or move it to another device.</p>
@@ -1032,10 +1041,10 @@
   //   receive / bank-spend : Bank adjustment, + (someone sent you money) or −
   const MONEY_KINDS = {
     add:          { title: "Add money",            edit: "Edit money added",    submit: "Add",     account: CASH_ID, sign: 1,  bills: true,  hint: "e.g. Starting cash, Put in from savings" },
-    spend:        { title: "Spend money",          edit: "Edit money spent",    submit: "Spend",   account: CASH_ID, sign: -1, bills: true,  hint: "e.g. Took out for personal use" },
+    spend:        { title: "Take out cash",        edit: "Edit cash taken out", submit: "Take out", account: CASH_ID, sign: -1, bills: true,  hint: "e.g. Personal use, Paid myself" },
     deposit:      { title: "Deposit cash to bank", edit: "Edit deposit",        submit: "Deposit", bills: true,  hint: "e.g. Weekly deposit" },
     receive:      { title: "Received transfer",    edit: "Edit transfer received", submit: "Add",  account: BANK_ID, sign: 1,  from: true,   hint: "e.g. Payment for 5 units" },
-    "bank-spend": { title: "Spend from bank",      edit: "Edit bank spending",  submit: "Spend",   account: BANK_ID, sign: -1, hint: "e.g. Card payment, Rent" },
+    "bank-spend": { title: "Withdraw from bank",   edit: "Edit bank withdrawal", submit: "Withdraw", account: BANK_ID, sign: -1, hint: "e.g. Personal use, Paid myself" },
   };
   const moneyKindOf = (t) => isDeposit(t) ? "deposit"
     : t.accountId === BANK_ID ? (t.amount < 0 ? "bank-spend" : "receive")
@@ -1096,7 +1105,7 @@
     const balance = Calc.balances(Store.data)[accountId] || 0;
     const name = accountName(accountId);
     const form = openForm(`Set ${name} balance`, `
-      <p class="muted">Enter how much you actually have in ${esc(name)} right now. The difference from the tracker's balance is saved as one adjustment, so the two match. Delete that entry under "Money in and out" to undo it.</p>
+      <p class="muted">Enter how much you actually have in ${esc(name)} right now. The difference from the tracker's balance is saved as one adjustment, so the two match. It's listed under "Balance corrections" (not money in and out); delete it there to undo.</p>
       <div class="preview"><span>${esc(name)} balance in tracker <b>${money(balance)}</b></span></div>
       ${row(field(`${esc(name)} you have now`, moneyInput("counted", "", "required")), field("Date", dateInput("date", Calc.today(), "required")))}
       <div class="preview" data-preview></div>`,
