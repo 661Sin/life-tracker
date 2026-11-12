@@ -4,3 +4,15 @@ desktop.ini
 
 # Editor settings
 .vscode/
+
+# Private notes (kept on this PC only, never published)
+CLAUDE.md
+CLAUDE.local.md
+.claude/
+
+# Personal data must never be committed: backups, exports, test data
+*.json
+!manifest.webmanifest
+*-backup-*
+*.bak
+test-data/
