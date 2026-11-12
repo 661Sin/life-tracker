@@ -934,6 +934,7 @@ td.actions { width: 1%; white-space: nowrap; }
 .lf-sleep-times { margin-bottom: 14px; }
 .lf-quality { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; margin-bottom: 8px; }
 .lf-q {
+  position: relative;
   font: inherit; color: var(--text-muted); cursor: pointer;
   display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 10px 4px;
   background: var(--glass-fill); border: 1px solid var(--glass-border); border-radius: var(--radius-sm);
@@ -944,7 +945,10 @@ td.actions { width: 1%; white-space: nowrap; }
 .lf-q small { font-size: 11px; }
 .lf-q:hover { background: var(--glass-fill-hover); color: var(--text); }
 .lf-q:active { transform: scale(0.92); transition-duration: var(--t-press); }
-.lf-q.on, .seg input:checked + span.lf-qseg { background: var(--glass-fill-strong); color: var(--text); border-color: var(--glass-border-strong); }
+.lf-q.on, .lf-q:has(input:checked) { background: var(--glass-fill-strong); color: var(--text); border-color: var(--glass-border-strong); }
+.lf-q input { position: absolute; opacity: 0; pointer-events: none; }
+.lf-q:has(input:focus-visible) { outline: 2px solid var(--glass-border-strong); }
+.lf-quality-pick { margin-bottom: 0; }
 
 .lf-collapse { margin-top: 20px; }
 .lf-in-sheet { background: none; border: none; box-shadow: none; -webkit-backdrop-filter: none; backdrop-filter: none; padding: 0; }
@@ -1009,6 +1013,12 @@ td.actions { width: 1%; white-space: nowrap; }
 .lf-legend i { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 6px; }
 .lf-legend b { color: var(--text); font-weight: 600; margin-left: 2px; }
 
+/* Bar chart extras (sleep, workouts per week) */
+.lf-bar-muted { fill: var(--text-muted); }
+.lf-bar-empty { fill: var(--border); }
+.lf-page .chart-card { margin-bottom: 8px; }
+.lf-page .chart-detail { min-height: 22px; }
+
 /* Line chart */
 .lf-line-path { fill: none; stroke: var(--accent); stroke-width: 2.5; stroke-linejoin: round; stroke-linecap: round; }
 .lf-dot { fill: var(--bg); stroke: var(--accent); stroke-width: 2; }
@@ -1072,7 +1082,8 @@ td.actions { width: 1%; white-space: nowrap; }
   .lf-row + .lf-row::before { left: 16px; right: 16px; }
   .lf-toast { bottom: calc(96px + env(safe-area-inset-bottom)); }
   .lf-q small { display: none; }
-  .form-row.lf-sleep-times { grid-template-columns: 1fr 1fr; }
+  .form-row.lf-sleep-times, .form-row.lf-pair { grid-template-columns: 1fr 1fr; }
+
 
   /* Tables turn into a stack of small cards, each value labelled */
   .table-card { background: none; border: none; padding: 0; box-shadow: none; -webkit-backdrop-filter: none; backdrop-filter: none; }

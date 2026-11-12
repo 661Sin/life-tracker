@@ -184,6 +184,7 @@
   // ================= Pages =================
   const PAGES = {};
   const ACTIONS = {};
+  const CHARTS = {}; // name → draw(el), for charts sized to their card
 
   // ---------- Today ----------
   // The daily check-in: habits to tick, tasks due, school due soon, last
@@ -825,6 +826,147 @@
     "credit-targets": creditTargetsForm,
   });
 
+  // ---------- Bar chart (sleep, workouts per week) ----------
+  // items: [{ key, label, value (null = nothing logged), good? }]. Optional
+  // dashed target line. Hover / tap a bar → onPick(key) shows its details.
+  function barChart({ width, items, target = null, height = 170, valueLabel = (v) => String(v), pick = null }) {
+    const W = Math.max(240, width), top = 18, labelH = 22, H = height - top - labelH;
+    const max = Math.max(target || 0, ...items.map((i) => i.value || 0)) * 1.1 || 1;
+    const col = W / items.length;
+    const barW = Math.max(6, Math.min(26, col - 8));
+    const y = (v) => top + H - (v / max) * H;
+    const narrow = col < 26;
+    const bars = items.map((it, i) => {
+      const x = i * col + (col - barW) / 2;
+      const h = it.value ? Math.max(2, (it.value / max) * H) : 0;
+      const r = Math.min(5, barW / 2, h);
+      const yTop = top + H - h;
+      const path = h ? `M${x},${top + H}V${yTop + r}Q${x},${yTop} ${x + r},${yTop}H${x + barW - r}Q${x + barW},${yTop} ${x + barW},${yTop + r}V${top + H}Z` : "";
+      const showLabel = !narrow || i % 2 === items.length % 2 || i === items.length - 1;
+      return `<g class="chart-col lf-bar-col${it.key === pick ? " sel" : ""}" data-key="${esc(it.key)}">
+          <rect class="chart-hit" x="${i * col}" y="0" width="${col}" height="${height}"></rect>
+          ${h ? `<path class="${it.good ? "chart-pos" : "lf-bar-muted"}" d="${path}"></path>` : `<rect class="lf-bar-empty" x="${x}" y="${top + H - 2}" width="${barW}" height="2" rx="1"></rect>`}
+          ${showLabel ? `<text class="chart-label" x="${i * col + col / 2}" y="${height - 6}" text-anchor="middle">${esc(it.label)}</text>` : ""}
+        </g>`;
+    }).join("");
+    return `<svg class="chart" width="${W}" height="${height}" viewBox="0 0 ${W} ${height}" role="img" aria-label="Bar chart">
+      <line class="chart-zero" x1="0" x2="${W}" y1="${top + H}" y2="${top + H}"></line>
+      ${bars}
+      ${target ? `<line class="lf-target" x1="0" x2="${W}" y1="${y(target)}" y2="${y(target)}"></line>
+        <text class="chart-label" x="${W}" y="${y(target) - 5}" text-anchor="end">${esc(valueLabel(target))}</text>` : ""}
+    </svg>`;
+  }
+  // Hover (mouse) or tap a bar: highlight it and fill in its detail line
+  const chartPicks = {};
+  function wireBars(box, name, detail) {
+    const show = (key) => {
+      if (!key) return;
+      chartPicks[name] = key;
+      box.querySelectorAll(".lf-bar-col").forEach((g) => g.classList.toggle("sel", g.dataset.key === key));
+      const out = box.parentElement.querySelector("[data-chart-detail]");
+      if (out) out.innerHTML = detail(key);
+    };
+    box.addEventListener("mouseover", (e) => { const g = e.target.closest(".lf-bar-col"); if (g) show(g.dataset.key); });
+    box.addEventListener("click", (e) => { const g = e.target.closest(".lf-bar-col"); if (g) show(g.dataset.key); });
+    return show;
+  }
+
+  // ---------- Sleep ----------
+  const qualityOf = (q) => QUALITY.find(([v]) => Number(v) === Number(q));
+  const hoursBig = (h) => {
+    if (h === null) return "—";
+    const m = Math.round(h * 60);
+    return `${Math.floor(m / 60)}<span class="lf-unit">h</span> ${String(m % 60).padStart(2, "0")}<span class="lf-unit">m</span>`;
+  };
+
+  PAGES.sleep = (d) => {
+    const today = L.today();
+    const target = Number(d.settings.sleepTarget) || 8;
+    const s7 = L.sleepStats(d.sleep, today, 7), s30 = L.sleepStats(d.sleep, today, 30);
+    let html = head({
+      label: "7-night average",
+      big: hoursBig(s7.hours),
+      sub: [s30.nights ? `30 nights ${fmtHours(s30.hours)}` : "", s7.bedtime ? `Bedtime ~${s7.bedtime}` : "", `Target ${fmtNum(target)}h`].filter(Boolean).join(" · "),
+      primary: ["Log sleep", "add-sleep"],
+      menu: [["Sleep target…", "sleep-target"]],
+    });
+    if (!d.sleep.length) return html + emptyCard("No nights logged yet. Log last night from Today.");
+    html += `<div class="card chart-card"><h3>Last 14 nights</h3><div data-chart="sleep"></div><div class="chart-detail" data-chart-detail></div></div>`;
+    const list = d.sleep.slice().sort((a, b) => (a.date < b.date ? 1 : -1));
+    const rows = (arr) => listCard(arr.map((s) => {
+      const q = qualityOf(s.quality);
+      const h = L.sleepHours(s.bed, s.wake);
+      return rowEl({ action: "edit-sleep", id: s.id, lead: `<span class="lf-big-emoji">${q ? q[1] : "🌙"}</span>`,
+        title: relDay(s.date, today), meta: `${s.bed} → ${s.wake}${q ? " · " + q[2] : ""}`,
+        trail: `<span class="${h >= target ? "pos" : ""}">${fmtHours(h)}</span>` });
+    }));
+    html += section("Nights", rows(list.slice(0, 14)));
+    if (list.length > 14) html += collapsed(`Older (${list.length - 14})`, rows(list.slice(14)));
+    return html;
+  };
+
+  CHARTS.sleep = (el) => {
+    const d = D(), today = L.today();
+    const target = Number(d.settings.sleepTarget) || 8;
+    const nights = L.lastNights(d.sleep, today, 14);
+    const pick = chartPicks.sleep && nights.some((n) => n.date === chartPicks.sleep) ? chartPicks.sleep
+      : (nights.slice().reverse().find((n) => n.entry) || nights[nights.length - 1]).date;
+    el.innerHTML = barChart({
+      width: el.clientWidth, target, pick, valueLabel: (v) => `${fmtNum(v)}h`,
+      items: nights.map((n) => ({ key: n.date, label: UTC({ weekday: "narrow" }).format(L.toUTC(n.date)), value: n.hours, good: n.hours !== null && n.hours >= target })),
+    });
+    const detail = (key) => {
+      const n = nights.find((x) => x.date === key);
+      if (!n || !n.entry) return `<span class="muted">${relDay(key, today)}: not logged</span>`;
+      const q = qualityOf(n.entry.quality);
+      return `<div class="preview"><span>${relDay(key, today)}</span><span>${n.entry.bed} → ${n.entry.wake}</span><span><b>${fmtHours(n.hours)}</b></span>${q ? `<span>${q[1]} ${q[2]}</span>` : ""}</div>`;
+    };
+    if (!el._wired) { el._show = wireBars(el, "sleep", detail); el._wired = true; }
+    el._show(pick);
+  };
+
+  function sleepForm(id, preset = {}) {
+    const d = D();
+    const last = d.sleep.slice().sort((a, b) => (a.date < b.date ? 1 : -1))[0];
+    const s = id ? LifeStore.get("sleep", id) : { date: L.today(), bed: last ? last.bed : "23:00", wake: last ? last.wake : "07:00", quality: "", ...preset };
+    const form = openForm(id ? `Night before ${fmtDay(s.date)}` : "Log sleep", `
+      ${field("Woke up on", dateInput("date", s.date, "required"))}
+      <div class="form-row lf-pair">${field("Bed", timeInput("bed", s.bed, "required"))}${field("Woke", timeInput("wake", s.wake, "required"))}</div>
+      ${fieldDiv("How did you sleep?", `<div class="lf-quality lf-quality-pick">${QUALITY.map(([v, e, t]) =>
+        `<label class="lf-q"><input type="radio" name="quality" value="${v}"${String(s.quality) === v ? " checked" : ""}><span>${e}</span><small>${t}</small></label>`).join("")}</div>`)}
+      <div class="preview big" data-preview></div>`,
+    (v) => {
+      if (!v.date || !v.bed || !v.wake) return "Enter the date and both times.";
+      const clash = D().sleep.find((x) => x.date === v.date && x.id !== id);
+      if (clash) return `You already logged the night before ${fmtDay(v.date)}. Open it from the list to change it.`;
+      return LifeStore.commit((dd) => upsertIn(dd.sleep, { id: id || LifeStore.uid(), date: v.date, bed: v.bed, wake: v.wake, quality: Number(v.quality) || null }));
+    }, {
+      submitLabel: id ? "Save" : "Log sleep",
+      onDelete: id ? () => LifeStore.commit((dd) => removeFrom(dd.sleep, id)) : null,
+      confirmText: "Delete this night? This can't be undone.",
+    });
+    const preview = form.querySelector("[data-preview]");
+    const update = () => { const v = formValues(form); preview.innerHTML = v.bed && v.wake ? `<span>Slept <b>${fmtHours(L.sleepHours(v.bed, v.wake))}</b></span>` : ""; };
+    form.addEventListener("change", update);
+    form.addEventListener("input", update);
+    update();
+  }
+
+  function sleepTargetForm() {
+    openForm("Sleep target", `${field("Hours a night", numInput("target", D().settings.sleepTarget, 'min="1" max="14" step="0.25"'))}`,
+      (v) => {
+        const t = num(v.target);
+        if (!(t >= 1 && t <= 14)) return "Enter between 1 and 14 hours.";
+        return LifeStore.commit((dd) => { dd.settings.sleepTarget = t; });
+      });
+  }
+
+  Object.assign(ACTIONS, {
+    "add-sleep": () => sleepForm(),
+    "edit-sleep": (id) => sleepForm(id),
+    "sleep-target": sleepTargetForm,
+  });
+
   // ================= Actions =================
   Object.assign(ACTIONS, {
     menu: (id, el) => {
@@ -895,8 +1037,7 @@
     moveBubble(nav);
     scrollActiveIntoView(nav);
   }
-  // Charts are sized to their card, so they're drawn once the page is in place
-  const CHARTS = {};
+  // Charts are sized to their card, so they are drawn once the page is in place (CHARTS is defined with PAGES)
   function drawCharts(page) {
     page.querySelectorAll("[data-chart]").forEach((el) => { if (CHARTS[el.dataset.chart]) CHARTS[el.dataset.chart](el); });
   }
