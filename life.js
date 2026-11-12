@@ -55,6 +55,8 @@
   };
   const fmtNum = (n) => (Math.round(n * 100) / 100).toLocaleString("en-NZ");
   const pct = (x) => `${Math.round(x * 100)}%`;
+  // A goal value with its unit: "$1,500", "85 kg"
+  const withUnit = (n, unit) => !unit ? fmtNum(n) : /^[$€£]/.test(unit) ? unit + fmtNum(n) : `${fmtNum(n)} ${unit}`;
 
   // ================= Building blocks =================
   const btn = (label, action, id = "", cls = "") =>
@@ -280,9 +282,9 @@
 
   // ---------- Tasks (shared by Today and Plans) ----------
   const PRIORITY_LABEL = { high: "High", med: "Medium", low: "Low" };
-  function taskRow(t, today) {
+  function taskRow(t, today, inGoal = false) {
     const overdue = !t.done && t.due && t.due < today;
-    const goal = t.goalId ? LifeStore.get("goals", t.goalId) : null;
+    const goal = t.goalId && !inGoal ? LifeStore.get("goals", t.goalId) : null;
     const std = t.standardId ? LifeStore.get("standards", t.standardId) : null;
     const meta = [
       t.due ? `<span class="${overdue ? "neg" : ""}">${t.done ? fmtShort(t.due) : dueText(t.due, today)}</span>` : "",
@@ -291,7 +293,7 @@
       std ? esc(std.code) : "",
       t.repeat ? `↻ ${t.repeat}` : "",
     ].filter(Boolean).join(" · ");
-    return rowEl({ action: "edit-task", id: t.id, cls: (t.done ? "done" : "") + (overdue ? " overdue" : ""),
+    return rowEl({ action: "edit-task", id: t.id, cls: "task" + (t.done ? " done" : "") + (overdue ? " overdue" : ""),
       lead: tick(!!t.done, "tick-task", t.id, `${t.title} done`), title: esc(t.title), meta });
   }
 
@@ -445,6 +447,270 @@
     "add-habit": () => habitForm(),
     "open-habit": (id) => habitForm(id),
     "archived-habits": archivedHabits,
+  });
+
+  // ---------- Plans: goals + tasks ----------
+  PAGES.plans = (d) => {
+    const today = L.today();
+    const goals = d.goals.filter((g) => !L.goalAchieved(g, d.tasks));
+    const achieved = d.goals.filter((g) => L.goalAchieved(g, d.tasks));
+    const inbox = d.tasks.filter((t) => !t.goalId || !LifeStore.get("goals", t.goalId));
+    const b = L.taskBuckets(inbox, today);
+    const all = L.taskBuckets(d.tasks, today);
+    const dueNow = all.overdue.length + all.today.length;
+    let html = head({
+      label: "Due today",
+      big: String(dueNow),
+      sub: [all.overdue.length ? `<span class="neg">${all.overdue.length} overdue</span>` : "",
+        plural(d.tasks.filter((t) => !t.done).length, "open task")].filter(Boolean).join(" · "),
+      primary: ["New task", "add-task"],
+      menu: [["New goal…", "add-goal"]],
+    });
+
+    if (goals.length) html += `<div class="lf-goals">${goals.map((g) => goalCard(g, d.tasks, today)).join("")}</div>`;
+
+    const group = (title, list) => list.length ? section(title, listCard(list.map((t) => taskRow(t, today)))) : "";
+    html += group("Today", [...b.overdue, ...b.today]) + group("Upcoming", b.upcoming) + group("No date", b.noDate);
+    if (!b.overdue.length && !b.today.length && !b.upcoming.length && !b.noDate.length) {
+      html += emptyCard(goals.length ? "No tasks outside your goals." : "No tasks or goals yet.");
+    }
+    const done = inbox.filter((t) => t.done).sort((a, c) => (a.done < c.done ? 1 : -1));
+    if (done.length) html += collapsed(`Done (${done.length})`, listCard(done.slice(0, 40).map((t) => taskRow(t, today))));
+    if (achieved.length) html += collapsed(`Achieved (${achieved.length})`, `<div class="lf-goals">${achieved.map((g) => goalCard(g, d.tasks, today)).join("")}</div>`);
+    return html;
+  };
+
+  function goalCard(g, tasks, today) {
+    const p = L.goalProgress(g, tasks);
+    const pace = L.goalPace(g, tasks, today);
+    const done = L.goalAchieved(g, tasks);
+    const n = g.kind === "number" ? esc(`${withUnit(L.goalCurrent(g), g.unit)} / ${withUnit(Number(g.target), g.unit)}`)
+      : `${L.goalTasks(g, tasks).filter((t) => t.done).length} / ${L.goalTasks(g, tasks).length} tasks`;
+    const when = done ? "Achieved" : pace.daysLeft === null ? "No deadline"
+      : pace.daysLeft < 0 ? `<span class="neg">${plural(-pace.daysLeft, "day")} past deadline</span>`
+      : pace.daysLeft === 0 ? "Due today" : `${plural(pace.daysLeft, "day")} left`;
+    const track = done || pace.onTrack === null ? "" : pace.onTrack ? `<span class="pos">On track</span>` : `<span class="neg">Behind</span>`;
+    return `<div class="card lf-goal" data-action="open-goal" data-id="${esc(g.id)}" role="button" tabindex="0">
+        <div class="lf-goal-top"><span class="lf-goal-title">${g.emoji ? `<span class="lf-emoji">${esc(g.emoji)}</span>` : ""}${esc(g.title)}</span><b>${pct(p)}</b></div>
+        <div class="bar"><span class="${done ? "pos-fill" : ""}" style="width:${Math.max(2, p * 100)}%"></span></div>
+        <div class="lf-goal-meta"><span>${n}</span><span>${[when, track].filter(Boolean).join(" · ")}</span></div>
+      </div>`;
+  }
+
+  // ---- Task form ----
+  function taskForm(id, preset = {}) {
+    const t = id ? LifeStore.get("tasks", id) : { title: "", due: "", priority: "med", goalId: "", standardId: "", repeat: "", ...preset };
+    const d = D();
+    const goals = d.goals.filter((g) => !L.goalAchieved(g, d.tasks) || g.id === t.goalId);
+    const stds = d.standards.slice().sort((a, b) => (a.subject || "").localeCompare(b.subject || "") || (a.code || "").localeCompare(b.code || ""));
+    openForm(id ? "Edit task" : "New task", `
+      ${field("Task", textInput("title", t.title, 'required placeholder="e.g. Book driving theory test"'))}
+      ${row2(field("Due", dateInput("due", t.due)), field("Repeat", select("repeat", [["", "Doesn't repeat"], ["daily", "Every day"], ["weekly", "Every week"], ["monthly", "Every month"]], t.repeat || "")))}
+      ${fieldDiv("Priority", seg("priority", [["low", "Low"], ["med", "Medium"], ["high", "High"]], t.priority || "med"))}
+      ${goals.length ? field("Goal", select("goalId", [["", "No goal"], ...goals.map((g) => [g.id, `${g.emoji ? g.emoji + " " : ""}${g.title}`])], t.goalId || "")) : ""}
+      ${stds.length ? field("School standard", select("standardId", [["", "None"], ...stds.map((s) => [s.id, `${s.code} · ${s.title}`])], t.standardId || "")) : ""}`,
+    (v) => {
+      if (!v.title) return "Give the task a name.";
+      return LifeStore.commit((dd) => {
+        const cur = id ? dd.tasks.find((x) => x.id === id) : { id: LifeStore.uid(), created: L.today() };
+        const item = { ...cur, title: v.title, due: v.due || "", priority: v.priority || "med", goalId: v.goalId || "", standardId: v.standardId || "", repeat: v.repeat || "" };
+        for (const k of ["due", "goalId", "standardId", "repeat"]) if (!item[k]) delete item[k];
+        upsertIn(dd.tasks, item);
+      });
+    }, {
+      submitLabel: id ? "Save" : "Add task",
+      onDelete: id ? () => LifeStore.commit((dd) => removeFrom(dd.tasks, id)) : null,
+      confirmText: "Delete this task? This can't be undone.",
+      after: preset.after,
+    });
+  }
+
+  // Tick a task. A repeating one also creates its next copy (unticking
+  // removes that copy again if it hasn't been started on).
+  function toggleTask(dd, id) {
+    const t = dd.tasks.find((x) => x.id === id);
+    const today = L.today();
+    if (!t.done) {
+      t.done = today;
+      if (t.repeat) {
+        const next = { ...t, id: LifeStore.uid(), due: L.nextDue(t.due, t.repeat, today), created: today };
+        delete next.done; delete next.nextId;
+        dd.tasks.push(next);
+        t.nextId = next.id;
+      }
+    } else {
+      delete t.done;
+      if (t.nextId) {
+        const n = dd.tasks.find((x) => x.id === t.nextId);
+        if (n && !n.done) removeFrom(dd.tasks, n.id);
+        delete t.nextId;
+      }
+    }
+  }
+
+  // ---- Goals ----
+  function goalForm() {
+    const form = openForm("New goal", `
+      ${row2(field("Goal", textInput("title", "", 'required placeholder="e.g. Bench 100kg"')), field("Emoji", textInput("emoji", "", 'maxlength="8" placeholder="🎯"')))}
+      ${fieldDiv("Progress is", seg("kind", [["tasks", "Tasks done"], ["number", "A number"]], "tasks"))}
+      <div data-number>${row2(field("Start", numInput("start", "", 'placeholder="e.g. 70"')), field("Target", numInput("target", "", 'placeholder="e.g. 100"')))}
+        ${field("Unit", textInput("unit", "", 'placeholder="e.g. kg, $, km"'))}</div>
+      ${field("Deadline", dateInput("deadline", ""))}`,
+    (v) => {
+      if (!v.title) return "Give the goal a name.";
+      const item = { id: LifeStore.uid(), title: v.title, emoji: v.emoji, kind: v.kind, created: L.today(), updates: [] };
+      if (v.deadline) item.deadline = v.deadline;
+      if (v.kind === "number") {
+        if (v.target === "") return "Enter the target number.";
+        if (num(v.target) === num(v.start)) return "The target needs to be different from the start.";
+        Object.assign(item, { start: num(v.start), target: num(v.target), unit: v.unit });
+      }
+      const err = LifeStore.commit((dd) => dd.goals.push(item));
+      if (!err) setTimeout(() => goalSheet(item.id), 0);
+      return err;
+    }, { submitLabel: "Add goal" });
+    const sync = () => { form.querySelector("[data-number]").hidden = formValues(form).kind !== "number"; };
+    form.addEventListener("change", sync);
+    sync();
+  }
+
+  function goalSheet(id) {
+    const g = LifeStore.get("goals", id);
+    if (!g) return;
+    const d = D(), today = L.today();
+    const p = L.goalProgress(g, d.tasks);
+    const pace = L.goalPace(g, d.tasks, today);
+    const isNum = g.kind === "number";
+    const tasks = L.sortTasks(L.goalTasks(g, d.tasks));
+    const open = tasks.filter((t) => !t.done), done = tasks.filter((t) => t.done);
+    const paceLine = L.goalAchieved(g, d.tasks) ? `<span class="pos">Achieved${g.achieved ? " " + fmtDate(g.achieved) : ""}</span>`
+      : pace.daysLeft === null ? "No deadline"
+      : `${pace.onTrack ? `<span class="pos">On track</span>` : `<span class="neg">Behind: about ${pct(pace.expected)} by now</span>`} · ${pace.daysLeft < 0 ? `${plural(-pace.daysLeft, "day")} past ${fmtShort(g.deadline)}` : `${plural(pace.daysLeft, "day")} left (${fmtShort(g.deadline)})`}`;
+    const ups = (g.updates || []).slice().sort((a, b) => (a.date < b.date ? 1 : -1));
+
+    const form = openForm(`${g.emoji ? g.emoji + " " : ""}${g.title}`, `
+      <div class="lf-goal-hero">
+        <div class="lf-big">${pct(p)}${isNum ? `<span class="lf-unit">${esc(`${withUnit(L.goalCurrent(g), g.unit)} / ${withUnit(Number(g.target), g.unit)}`)}</span>` : ""}</div>
+        <div class="bar"><span style="width:${Math.max(2, p * 100)}%"></span></div>
+        <div class="lf-sub">${paceLine}</div>
+      </div>
+      ${isNum ? `
+        <div class="lf-chart-box" data-goal-chart></div>
+        <div class="lf-inline">
+          ${field("New value", numInput("logValue", "", `placeholder="${fmtNum(L.goalCurrent(g))}"`))}
+          ${field("Date", dateInput("logDate", today))}
+          <button type="button" class="btn" data-log>Log</button>
+        </div>
+        ${ups.length ? `<div class="lf-list lf-in-sheet">${ups.map((u) => rowEl({ action: "", id: u.id,
+          title: esc(withUnit(Number(u.value), g.unit)), trail: `<span class="muted">${fmtDate(u.date)}</span>`, cls: "lf-update" })).join("")}</div>
+          <p class="field-hint">Tap an update to remove it.</p>` : ""}` : `
+        <div class="lf-list lf-in-sheet">${open.concat(done).map((t) => taskRow(t, today, true)).join("") || `<p class="muted">No tasks yet.</p>`}</div>
+        <div class="lf-inline">${field("Add a task", textInput("newTask", "", 'placeholder="Next step…"'))}<button type="button" class="btn" data-add-task>Add</button></div>`}
+      <details class="more"><summary>Goal settings</summary><div class="form">
+        ${row2(field("Goal", textInput("title", g.title, "required")), field("Emoji", textInput("emoji", g.emoji, 'maxlength="8"')))}
+        ${isNum ? row2(field("Start", numInput("start", g.start)), field("Target", numInput("target", g.target))) + field("Unit", textInput("unit", g.unit)) : ""}
+        ${field("Deadline", dateInput("deadline", g.deadline))}
+        <label class="check"><input type="checkbox" name="achieved"${g.achieved ? " checked" : ""}> Mark as achieved</label>
+      </div></details>`,
+    (v) => {
+      if (!v.title) return "Give the goal a name.";
+      if (isNum && num(v.target) === num(v.start)) return "The target needs to be different from the start.";
+      return LifeStore.commit((dd) => {
+        const x = dd.goals.find((y) => y.id === id);
+        Object.assign(x, { title: v.title, emoji: v.emoji });
+        if (v.deadline) x.deadline = v.deadline; else delete x.deadline;
+        if (isNum) Object.assign(x, { start: num(v.start), target: num(v.target), unit: v.unit });
+        if (v.achieved && !x.achieved) x.achieved = today;
+        if (!v.achieved) delete x.achieved;
+      });
+    }, {
+      onDelete: () => LifeStore.commit((dd) => {
+        removeFrom(dd.goals, id);
+        dd.tasks.forEach((t) => { if (t.goalId === id) delete t.goalId; });
+      }),
+      confirmText: "Delete this goal? Its tasks are kept, moved to your inbox.",
+    });
+
+    const chartBox = form.querySelector("[data-goal-chart]");
+    if (chartBox) chartBox.innerHTML = goalChart(g, chartBox.clientWidth || 480);
+    const reopen = () => { render(); goalSheet(id); };
+    form.addEventListener("click", (e) => {
+      const tk = e.target.closest("[data-action=tick-task]");
+      if (tk) { LifeStore.commit((dd) => toggleTask(dd, tk.dataset.id)); return reopen(); }
+      const tr = e.target.closest("[data-action=edit-task]");
+      if (tr) return taskForm(tr.dataset.id, { after: () => goalSheet(id) });
+      if (e.target.closest("[data-add-task]")) {
+        const title = form.newTask.value.trim();
+        if (!title) return form.newTask.focus();
+        LifeStore.commit((dd) => dd.tasks.push({ id: LifeStore.uid(), title, priority: "med", goalId: id, created: today }));
+        reopen();
+        const again = document.querySelector("#modal [name=newTask]");
+        if (again) again.focus();
+        return;
+      }
+      if (e.target.closest("[data-log]")) {
+        if (form.logValue.value === "") return form.logValue.focus();
+        const u = { id: LifeStore.uid(), date: form.logDate.value || today, value: num(form.logValue.value) };
+        LifeStore.commit((dd) => dd.goals.find((y) => y.id === id).updates.push(u));
+        return reopen();
+      }
+      const up = e.target.closest(".lf-update");
+      if (up && confirm("Remove this update?")) {
+        LifeStore.commit((dd) => { const x = dd.goals.find((y) => y.id === id); x.updates = x.updates.filter((u) => u.id !== up.dataset.id); });
+        reopen();
+      }
+    });
+    // Enter in "Add a task" / "New value" adds it instead of saving the sheet
+    form.addEventListener("keydown", (e) => {
+      if (e.key !== "Enter") return;
+      if (e.target.name === "newTask") { e.preventDefault(); form.querySelector("[data-add-task]").click(); }
+      if (e.target.name === "logValue") { e.preventDefault(); form.querySelector("[data-log]").click(); }
+    });
+  }
+
+  // ---- Line chart (number goals, bodyweight) ----
+  // points: [{ date, value }]. Optional target (dashed line) and pace line
+  // (from → to, faint) for goals. Plain SVG, sized to its box.
+  function lineChart({ width, height = 170, points, from, to, target = null, pace = null, unit = "" }) {
+    const W = Math.max(240, width), padL = 6, padR = 6, top = 16, bottom = 22, H = height - top - bottom;
+    if (!points.length) return "";
+    const xs = points.map((p) => L.toUTC(p.date));
+    const x0 = Math.min(L.toUTC(from || points[0].date), ...xs), x1 = Math.max(L.toUTC(to || points[points.length - 1].date), ...xs, x0 + 86400000);
+    const vals = points.map((p) => p.value).concat(target !== null ? [target] : [], pace ? [pace.fromValue, pace.toValue] : []);
+    let y0 = Math.min(...vals), y1 = Math.max(...vals);
+    const padV = (y1 - y0) * 0.12 || Math.abs(y1) * 0.05 || 1;
+    y0 -= padV; y1 += padV;
+    const X = (ms) => padL + ((ms - x0) / (x1 - x0)) * (W - padL - padR);
+    const Y = (v) => top + ((y1 - v) / (y1 - y0)) * H;
+    const path = points.map((p, i) => `${i ? "L" : "M"}${X(L.toUTC(p.date)).toFixed(1)},${Y(p.value).toFixed(1)}`).join("");
+    const last = points[points.length - 1];
+    const label = (ms, anchor) => `<text class="chart-label" x="${X(ms)}" y="${height - 6}" text-anchor="${anchor}">${fmtShort(L.fromUTC(ms))}</text>`;
+    return `<svg class="chart lf-line" width="${W}" height="${height}" viewBox="0 0 ${W} ${height}" role="img" aria-label="Progress chart">
+      ${target !== null ? `<line class="lf-target" x1="0" x2="${W}" y1="${Y(target)}" y2="${Y(target)}"></line>
+        <text class="chart-label" x="${W - 2}" y="${Y(target) - 5}" text-anchor="end">Target ${esc(withUnit(target, unit))}</text>` : ""}
+      ${pace ? `<line class="lf-pace" x1="${X(L.toUTC(pace.from))}" y1="${Y(pace.fromValue)}" x2="${X(L.toUTC(pace.to))}" y2="${Y(pace.toValue)}"></line>` : ""}
+      <path class="lf-line-path" d="${path}"></path>
+      ${points.map((p) => `<circle class="lf-dot" cx="${X(L.toUTC(p.date))}" cy="${Y(p.value)}" r="3.5"></circle>`).join("")}
+      <text class="lf-line-last" x="${Math.min(W - 4, X(L.toUTC(last.date)) + 6)}" y="${Y(last.value) - 8}" text-anchor="${X(L.toUTC(last.date)) > W - 60 ? "end" : "start"}">${fmtNum(last.value)}</text>
+      ${label(x0, "start")}${label(x1, "end")}
+    </svg>`;
+  }
+  function goalChart(g, width) {
+    const start = { date: g.created || L.today(), value: Number(g.start) || 0 };
+    const ups = (g.updates || []).slice().sort((a, b) => (a.date < b.date ? -1 : 1)).map((u) => ({ date: u.date, value: Number(u.value) }));
+    const points = [start, ...ups.filter((u) => u.date >= start.date)];
+    return lineChart({
+      width, points, from: start.date, to: g.deadline || null, target: Number(g.target), unit: g.unit || "",
+      pace: g.deadline ? { from: start.date, fromValue: start.value, to: g.deadline, toValue: Number(g.target) } : null,
+    });
+  }
+
+  Object.assign(ACTIONS, {
+    "add-task": () => taskForm(null, view === "plans" || view === "today" ? { due: view === "today" ? L.today() : "" } : {}),
+    "edit-task": (id) => taskForm(id),
+    "tick-task": (id) => save((dd) => toggleTask(dd, id)),
+    "add-goal": goalForm,
+    "open-goal": (id) => goalSheet(id),
   });
 
   // ================= Actions =================

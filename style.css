@@ -979,6 +979,31 @@ td.actions { width: 1%; white-space: nowrap; }
 .lf-emoji-pick { display: flex; flex-wrap: wrap; gap: 6px; margin-top: -4px; }
 .lf-emoji-pick .chip { font-size: 16px; padding: 4px 9px; }
 .seg { flex-wrap: wrap; }
+
+/* Plans: goal cards */
+.lf-goals { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; margin-bottom: 8px; }
+.lf-goal { cursor: pointer; display: flex; flex-direction: column; gap: 12px; transition: background var(--t-hover) ease, transform var(--t-hover) var(--ease-spring); }
+.lf-goal:hover { background: var(--glass-fill-hover); }
+.lf-goal:active { transform: scale(var(--press-scale)); transition-duration: var(--t-press); }
+.lf-goal:focus-visible { outline: 2px solid var(--glass-border-strong); }
+.lf-goal-top { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
+.lf-goal-title { font-size: 16px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lf-goal-top b { font-size: 20px; font-variant-numeric: tabular-nums; }
+.lf-goal-meta { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; font-size: 13px; color: var(--text-muted); }
+.lf-goal-hero .lf-big { font-size: 44px; margin: 0 0 10px; }
+.lf-goal-hero .lf-sub { margin-top: 10px; }
+.lf-inline { display: grid; grid-template-columns: 1fr auto; gap: 10px; align-items: end; }
+.lf-inline:has(> .field + .field) { grid-template-columns: 1fr 1fr auto; }
+.lf-chart-box { min-height: 40px; }
+.more .form { margin-top: 12px; }
+[data-number][hidden] { display: none; }
+
+/* Line chart */
+.lf-line-path { fill: none; stroke: var(--accent); stroke-width: 2.5; stroke-linejoin: round; stroke-linecap: round; }
+.lf-dot { fill: var(--bg); stroke: var(--accent); stroke-width: 2; }
+.lf-target { stroke: var(--positive); stroke-width: 1.5; stroke-dasharray: 5 5; opacity: 0.8; }
+.lf-pace { stroke: var(--text-muted); stroke-width: 1.5; stroke-dasharray: 2 5; opacity: 0.7; }
+.lf-line-last { fill: var(--text); font-size: 12px; font-weight: 600; font-family: inherit; }
 [data-days][hidden], [data-times][hidden] { display: none; }
 .lf-toast {
   position: fixed; left: 50%; bottom: calc(28px + env(safe-area-inset-bottom)); transform: translate(-50%, 0);
