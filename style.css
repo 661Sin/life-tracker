@@ -1181,6 +1181,10 @@ td.actions { width: 1%; white-space: nowrap; }
   -webkit-tap-highlight-color: transparent;
 }
 .update-toast:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+/* Export on phones: "Backup ready" with its size, then one button that opens the share sheet */
+.bk-ready { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 8px 0 4px; text-align: center; }
+.bk-size { font-size: 34px; font-weight: 700; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; margin-bottom: 14px; }
+.bk-ready .bk-share { width: 100%; max-width: 320px; }
 
 /* =====================================================================
    Journal section (journal.js): song of the week + saved feed

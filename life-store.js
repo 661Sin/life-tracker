@@ -103,22 +103,49 @@ const Backup = {
   },
   exportText() { return JSON.stringify({ app: "lifeTracker", version: 3, exported: LifeCalc.today(), pnl: Store.data, life: LifeStore.data, journal: this.hasJournal() ? JournalStore.data : undefined }, null, 2); },
 
+  fileName: (withMedia) => `life-tracker-backup-${LifeCalc.today()}${withMedia ? "-with-media" : ""}.json`,
+
+  // PC: a normal download
   save(text, withMedia) {
     const blob = new Blob([text], { type: "application/json" });
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
-    a.download = `life-tracker-backup-${LifeCalc.today()}${withMedia ? "-with-media" : ""}.json`;
+    a.download = this.fileName(withMedia);
     document.body.appendChild(a);
     a.click();
     a.remove();
     setTimeout(() => URL.revokeObjectURL(a.href), 1000);
   },
 
+  // Phones (iPhone Safari especially): files go through the share sheet
+  // (Save to Files, AirDrop, Mail, Messages…), the reliable way to save one there.
+  wantsShare() {
+    if (!navigator.canShare || !window.matchMedia("(pointer: coarse)").matches) return false;
+    try { return navigator.canShare({ files: [new File(["{}"], "test.json", { type: "application/json" })] }); } catch (e) { return false; }
+  },
+  // The share sheet only opens straight from a tap, so once the file is ready the
+  // sheet shows a "Save or send backup" button to tap.
+  offerFile(text, withMedia) {
+    const file = new File([text], this.fileName(withMedia), { type: "application/json" });
+    const body = openModal("Export backup", `
+      <div class="bk-ready">
+        <div class="stat-label">${withMedia ? "Backup with photos &amp; audio" : "Backup"}</div>
+        <div class="bk-size">${JournalCalc.bytes(file.size)}</div>
+        <button type="button" class="btn btn-primary bk-share">Save or send backup</button>
+      </div>`);
+    body.querySelector(".bk-share").addEventListener("click", () => {
+      navigator.share({ files: [file], title: "Life Tracker backup" })
+        .then(() => closeModal())
+        .catch((err) => { if (err && err.name === "AbortError") return; this.save(text, withMedia); closeModal(); });
+    });
+  },
+  deliver(text, withMedia) { if (this.wantsShare()) this.offerFile(text, withMedia); else { this.save(text, withMedia); closeModal(); } },
+
   // Export: when there are Journal photos / audio, asks whether to include them
   async download() {
     let sizes = { photos: 0, audio: 0, count: 0 };
     if (this.hasJournal() && JournalStore.allMediaIds().size) sizes = await Media.sizes().catch(() => sizes);
-    if (!sizes.count) return this.save(await this.build(false), false);
+    if (!sizes.count) return this.deliver(await this.build(false), false);
     const B = JournalCalc.bytes;
     const body = openModal("Export backup", `
       <div class="jr-choices">
@@ -131,7 +158,7 @@ const Backup = {
       const withMedia = b.dataset.bk === "media";
       body.querySelectorAll("[data-bk]").forEach((x) => { x.disabled = true; });
       b.querySelector("span").textContent = "Preparing…";
-      try { this.save(await this.build(withMedia), withMedia); closeModal(); }
+      try { this.deliver(await this.build(withMedia), withMedia); }
       catch (err) { alert("Couldn't export: " + err.message); closeModal(); }
     });
   },
@@ -157,11 +184,18 @@ const Backup = {
 
   // Asks for a file, confirms, imports, then tells every section to redraw
   chooseAndImport() {
+    // Kept in the page while picking (iPhone Safari can ignore a file box that isn't);
+    // accepts .json however the phone labels it
     const input = document.createElement("input");
     input.type = "file";
-    input.accept = ".json,application/json";
+    input.accept = ".json,application/json,text/plain";
+    input.hidden = true;
+    input.setAttribute("data-native", "");
+    document.body.appendChild(input);
+    setTimeout(() => input.remove(), 10 * 60 * 1000);
     input.addEventListener("change", () => {
       const file = input.files[0];
+      input.remove();
       if (!file) return;
       if (!confirm("Replace your current data with this backup? Export a backup of the current data first if you might need it.")) return;
       file.text().then((text) => this.importText(text)).then((what) => {
