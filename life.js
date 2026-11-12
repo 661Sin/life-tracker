@@ -253,8 +253,8 @@
     return `<div class="card lf-sleep" data-sleep-quick>
       <div class="lf-sleep-head"><h3>Last night</h3><b class="lf-sleep-hours" data-sleep-hours>${fmtHours(L.sleepHours(bed, wake))}</b></div>
       <div class="form-row lf-sleep-times">
-        ${field("Bed", timeInput("qbed", bed))}
-        ${field("Woke", timeInput("qwake", wake))}
+        ${field("Bed", timeInput("qbed", bed, "required"))}
+        ${field("Woke", timeInput("qwake", wake, "required"))}
       </div>
       <div class="lf-quality" role="group" aria-label="How did you sleep? Tap to save">
         ${QUALITY.map(([v, e, t]) => `<button type="button" class="lf-q" data-action="quick-sleep" data-id="${v}" aria-label="${t}"><span>${e}</span><small>${t}</small></button>`).join("")}
