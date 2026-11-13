@@ -9,7 +9,7 @@
 // it in the background, the page shows "Update available, tap to refresh",
 // and only after that tap does it take over (so nothing changes mid-use).
 
-const VERSION = "2026-11-13.214631";
+const VERSION = "2026-11-13.215542";
 const CACHE = `life-tracker-${VERSION}`;
 const FONTS = "life-tracker-fonts";
 

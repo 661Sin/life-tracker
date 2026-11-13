@@ -324,8 +324,449 @@
     return now;
   }
 
-  // Tapping a card opens the item (replaced further down by the full sheet)
-  let openItem = (id) => editForm(id);
+  // ================= Inside an item =================
+  // One sheet with three parts (pills at the top): Photos, Notes, Tracking.
+  // The frame is drawn once per opening; switching part, ticking a day or
+  // moving the progress slider only redraws the part below the pills.
+  const PARTS = [["photos", "Photos"], ["notes", "Notes"], ["tracking", "Tracking"]];
+  const sheet = { id: null, part: "photos", day: null }; // open item, shown part, the day the check-in block is for
+
+  function scheduleText(it) {
+    const s = it.schedule || { type: "daily" };
+    if (s.type === "weekly") return `${C.weeklyTarget(it)}× a week`;
+    if (s.type !== "days") return "Every day";
+    const days = (s.days || []).slice().sort((a, b) => WEEK_ORDER.indexOf(a) - WEEK_ORDER.indexOf(b));
+    const key = days.join();
+    if (key === "1,2,3,4,5") return "Weekdays";
+    if (key === "6,0") return "Weekends";
+    return days.map((x) => DAY_SHORT[x]).join(", ");
+  }
+  // Web addresses in notes become links (the text is escaped first)
+  const linkify = (text) => esc(text).replace(/https?:\/\/[^\s<]+[^\s<.,;:!?)\]]/g, (u) => `<a href="${u}" target="_blank" rel="noopener noreferrer">${u}</a>`);
+  // First photo next to the latest: the before / after
+  const beforeAfter = (it) => {
+    const a = C.firstPhoto(it), b = C.latestPhoto(it);
+    if (!a || a.id === b.id) return "";
+    const fig = (p, word) => `<figure class="lk-shot-fig"><div class="lk-shot" style="aspect-ratio:${p.w || 3}/${p.h || 4}">${imgTag(p.full, word)}</div><figcaption><b>${word}</b> · ${fmtDate(p.date)}</figcaption></figure>`;
+    return `<div class="lk-cmp-side">${fig(a, "Before")}${fig(b, "After")}</div>`;
+  };
+
+  function openItem(id, opts = {}) {
+    const it = LooksStore.get(id);
+    if (!it) return closeModal();
+    if (sheet.id !== id || opts.fresh) { sheet.id = id; sheet.part = "photos"; sheet.day = L.today(); }
+    if (opts.part) sheet.part = opts.part;
+    if (!sheet.day || sheet.day > L.today()) sheet.day = L.today();
+    const body = openModal(`${it.emoji ? it.emoji + " " : ""}${it.name}`, `
+      <div class="lk-sheet">
+        ${it.finished ? `<div class="lk-finished"><div class="stat-label">Finished ${fmtDate(it.finished)}</div>${beforeAfter(it)}</div>` : ""}
+        <div class="seg lk-parts" role="radiogroup" aria-label="Part">${PARTS.map(([k, t]) =>
+          `<label><input type="radio" name="lkPart" value="${k}"${k === sheet.part ? " checked" : ""}><span>${t}</span></label>`).join("")}</div>
+        <div class="lk-part" data-lk-part></div>
+        <div class="form-actions"><button type="button" class="btn" data-lk="edit">Edit</button></div>
+      </div>`);
+    body.parentElement.classList.add("jr-view-box", "lk-box");
+    wireSheet(body);
+    fillImages(body);
+    drawPart();
+  }
+
+  function drawPart() {
+    const box = document.querySelector("#modal [data-lk-part]");
+    const it = LooksStore.get(sheet.id);
+    if (!box || !it) return;
+    const scroller = box.closest(".modal-box"), y = scroller.scrollTop;
+    box.innerHTML = PART_HTML[sheet.part](it);
+    Pickers.enhance(box);
+    fillImages(box);
+    const chart = box.querySelector("[data-prog-chart]");
+    if (chart) chart.innerHTML = progressChart(it, box.clientWidth);   // (the chart box itself has no width while empty)
+    scroller.scrollTop = y;
+  }
+
+  const PART_HTML = {
+    // ---- Photos: + Photo, Compare, then the timeline (newest first) ----
+    photos(it) {
+      const photos = C.photos(it);
+      return `
+        <div class="lk-bar">
+          <label class="btn btn-primary jr-change">+ Photo<input type="file" accept="image/*" class="jr-file" data-photo-file></label>
+          ${photos.length >= 2 ? `<button type="button" class="btn" data-lk="compare">Compare</button>` : ""}
+        </div>
+        ${photos.length ? `<div class="lk-shots">${photos.map((p) => `
+          <button type="button" class="lk-shot" data-photo="${esc(p.id)}" aria-label="Photo from ${fmtDate(p.date)}">
+            ${imgTag(p.thumb)}
+            ${p.animated ? `<span class="jr-gif">GIF</span>` : ""}
+            <span class="lk-shot-cap"><b>${fmtShort(p.date)}</b>${p.note ? `<span>${esc(p.note)}</span>` : ""}</span>
+          </button>`).join("")}</div>` : `<div class="lk-none">No photos yet.</div>`}`;
+    },
+
+    // ---- Notes: how to do it, what I'm doing, dated updates ----
+    notes(it) {
+      const log = C.log(it);
+      return `
+        <h3 class="lk-h">How to do it</h3>
+        <div class="lk-how" data-lk="how" role="button" tabindex="0">${it.how ? linkify(it.how) : `<span class="lk-placeholder">Info, tips, links…</span>`}</div>
+
+        <h3 class="lk-h">What I'm doing</h3>
+        ${it.actions.length ? `<div class="lf-list lf-in-sheet">${it.actions.map((a) => `
+          <div class="lf-row lk-wrap" data-act="${esc(a.id)}" role="button" tabindex="0"><span class="lf-main"><span class="lf-title">${esc(a.text)}</span></span></div>`).join("")}</div>` : ""}
+        <form class="lk-add" data-add-action novalidate>
+          <input name="text" type="text" maxlength="140" autocomplete="off" placeholder="Add an action" aria-label="Add an action">
+          <button type="submit" class="btn btn-sm">Add</button>
+        </form>
+
+        <h3 class="lk-h">Log<button type="button" class="btn btn-sm" data-lk="add-log">+ Update</button></h3>
+        ${log.length ? `<div class="lf-list lf-in-sheet">${log.map((g) => `
+          <div class="lf-row lk-wrap" data-log="${esc(g.id)}" role="button" tabindex="0"><span class="lf-main"><span class="lf-meta">${relDay(g.date)}</span><span class="lf-title">${esc(g.text)}</span></span></div>`).join("")}</div>`
+          : `<div class="lk-none">No updates yet.</div>`}`;
+    },
+
+    // ---- Tracking: check-in, streaks, heatmap, progress, dates, finish ----
+    tracking(it) {
+      const today = L.today(), day = sheet.day || today;
+      const on = C.isDone(it, day);
+      const did = C.actionsDone(it, day);
+      const cols = C.heatmap(it, today, 12);
+      const monthOf = (s) => s.slice(0, 7);
+      const months = cols.map((col, i) => (i === 0 || monthOf(col[0].date) !== monthOf(cols[i - 1][0].date)) ? UTC({ month: "short" }).format(L.toUTC(col[0].date)) : "");
+      const cell = (c) => {
+        const cls = ["lf-hm-cell", c.done ? "done" : "", !c.scheduled ? "off" : "", c.future ? "future" : "", c.date === today ? "today" : "", c.date === day ? "sel" : ""].filter(Boolean).join(" ");
+        return c.future ? `<span class="${cls}"></span>`
+          : `<button type="button" class="${cls}" data-hm="${c.date}" aria-pressed="${c.done}" aria-label="${fmtDay(c.date)}${c.done ? ", done" : ""}"></button>`;
+      };
+      const prog = C.progress(it);
+      const left = C.daysLeft(it, today);
+      const leftText = it.finished || left === null ? "" : left < 0 ? `<span class="neg">${plural(-left, "day")} over</span>` : left === 0 ? "Due today" : `${plural(left, "day")} left`;
+      const started = it.start || it.created;
+      return `
+        <div class="lk-checkin">
+          <button type="button" class="lk-check lk-check-big${on ? " on" : ""}" data-lk="check" aria-pressed="${on}">${ICON.check}<span>Worked on it ${day === today ? "today" : "· " + relDay(day)}</span></button>
+          ${it.actions.length ? `<div class="lk-did">${it.actions.map((a) =>
+            `<button type="button" class="chip${did.includes(a.id) ? " active" : ""}" data-did="${esc(a.id)}" aria-pressed="${did.includes(a.id)}">${esc(a.text)}</button>`).join("")}</div>` : ""}
+        </div>
+        <div class="lf-stats3">
+          <div><span class="stat-label">Streak</span><b>${streakText(it, C.streak(it, today))}</b></div>
+          <div><span class="stat-label">Best</span><b>${streakText(it, C.bestStreak(it, today))}</b></div>
+          <div><span class="stat-label">Last 30 days</span><b>${C.consistency(it, today)}%</b></div>
+        </div>
+        <div class="lf-hm" role="group" aria-label="Last 12 weeks. Tap a day to tick or untick it.">
+          <div class="lf-hm-months">${months.map((m) => `<span>${m}</span>`).join("")}</div>
+          <div class="lf-hm-body">
+            <div class="lf-hm-days" aria-hidden="true"><span>M</span><span></span><span>W</span><span></span><span>F</span><span></span><span></span></div>
+            <div class="lf-hm-grid">${cols.map((col) => `<div class="lf-hm-col">${col.map(cell).join("")}</div>`).join("")}</div>
+          </div>
+        </div>
+
+        <h3 class="lk-h">Progress<b class="lk-prog-num" data-prog-label>${prog}%</b></h3>
+        <input type="range" class="jr-seek lk-range" min="0" max="100" step="1" value="${prog}" style="--p:${prog}%" aria-label="Progress" data-prog data-native>
+        <div class="lk-chart" data-prog-chart></div>
+
+        <div class="lf-list lf-in-sheet lk-plan">
+          <div class="lf-row" data-lk="edit" role="button" tabindex="0">
+            <span class="lf-main"><span class="lf-title">${esc(scheduleText(it))}</span>
+              <span class="lf-meta">${started ? `Started ${fmtShort(started)}` : ""}${it.target ? ` · Target ${fmtShort(it.target)}` : ""}</span></span>
+            ${leftText ? `<span class="lf-trail">${leftText}</span>` : ""}
+          </div>
+        </div>
+        <button type="button" class="btn lk-finish" data-lk="${it.finished ? "reopen" : "finish"}">${it.finished ? "Reopen" : "Mark as finished"}</button>`;
+    },
+  };
+
+  // Small line chart of progress (0–100%) over time, plain SVG sized to the sheet
+  function progressChart(it, width) {
+    const pts = C.progressPoints(it);
+    if (!pts.length) return "";
+    const W = Math.max(240, width || 0), H = 120, padX = 8, top = 12, bottom = 22, h = H - top - bottom;
+    const x0 = L.toUTC(pts[0].date), x1 = Math.max(L.toUTC(C.asOf(it)), L.toUTC(pts[pts.length - 1].date), x0 + 86400000);
+    const X = (date) => padX + ((L.toUTC(date) - x0) / (x1 - x0)) * (W - padX * 2);
+    const Y = (v) => top + ((100 - v) / 100) * h;
+    const path = pts.map((p, i) => `${i ? "L" : "M"}${X(p.date).toFixed(1)},${Y(p.value).toFixed(1)}`).join("");
+    return `<svg class="chart lf-line" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" role="img" aria-label="Progress over time">
+      <line class="chart-zero" x1="0" x2="${W}" y1="${Y(0)}" y2="${Y(0)}"></line>
+      <line class="lf-target" x1="0" x2="${W}" y1="${Y(100)}" y2="${Y(100)}"></line>
+      <path class="lf-line-path" d="${path}"></path>
+      ${pts.map((p) => `<circle class="lf-dot" cx="${X(p.date).toFixed(1)}" cy="${Y(p.value).toFixed(1)}" r="3.5"></circle>`).join("")}
+      <text class="chart-label" x="0" y="${H - 6}" text-anchor="start">${fmtShort(pts[0].date)}</text>
+      <text class="chart-label" x="${W}" y="${H - 6}" text-anchor="end">${fmtShort(L.fromUTC(x1))}</text>
+    </svg>`;
+  }
+
+  function wireSheet(body) {
+    const id = sheet.id;
+    const change = (fn) => LooksStore.commit((d) => fn(d.items.find((x) => x.id === id)));
+    body.addEventListener("click", (e) => {
+      const t = e.target;
+      if (t.closest("a")) return;                       // a link inside the notes
+      const ph = t.closest("[data-photo]");
+      if (ph) return photoForm(id, ph.dataset.photo);
+      const hm = t.closest("[data-hm]");                 // heatmap: tick / untick that day, and show it in the check-in block
+      if (hm) { sheet.day = hm.dataset.hm; check(id, sheet.day); drawPart(); const again = body.querySelector(`[data-hm="${sheet.day}"]`); if (again) again.focus(); return; }
+      const did = t.closest("[data-did]");
+      if (did) { change((it) => C.toggleAction(it, sheet.day, did.dataset.did)); return drawPart(); }
+      const act = t.closest("[data-act]");
+      if (act) return actionForm(id, act.dataset.act);
+      const lg = t.closest("[data-log]");
+      if (lg) return logForm(id, lg.dataset.log);
+      const b = t.closest("[data-lk]");
+      if (!b) return;
+      const what = b.dataset.lk;
+      if (what === "check") { check(id, sheet.day); return drawPart(); }
+      if (what === "edit") return editForm(id, () => openItem(id));
+      if (what === "compare") return compareView(id);
+      if (what === "how") return howForm(id);
+      if (what === "add-log") return logForm(id);
+      if (what === "finish") {
+        if (!confirm("Mark as finished? It moves to Done (you can reopen it).")) return;
+        change((it) => { it.finished = L.today(); });
+        toast("Finished 🎉");
+        return openItem(id);
+      }
+      if (what === "reopen") { change((it) => { delete it.finished; }); return openItem(id); }
+    });
+    body.addEventListener("keydown", (e) => {
+      if ((e.key === "Enter" || e.key === " ") && e.target.matches("[role=button]")) { e.preventDefault(); e.target.click(); }
+    });
+    body.addEventListener("change", (e) => {
+      const t = e.target;
+      if (t.name === "lkPart") { sheet.part = t.value; return drawPart(); }
+      if (t.matches("[data-photo-file]")) { if (t.files[0]) photoForm(id, null, t.files[0]); return; }
+      if (t.matches("[data-prog]")) {
+        // One progress entry per day: moving the slider again today replaces today's
+        const value = Math.max(0, Math.min(100, Math.round(Number(t.value) || 0))), today = L.today();
+        change((it) => { it.progress = it.progress.filter((p) => p.date !== today).concat({ date: today, value }); });
+        const chart = body.querySelector("[data-prog-chart]");
+        if (chart) chart.innerHTML = progressChart(LooksStore.get(id), chart.parentElement.clientWidth);
+      }
+    });
+    body.addEventListener("input", (e) => {
+      if (!e.target.matches("[data-prog]")) return;
+      e.target.style.setProperty("--p", e.target.value + "%");
+      body.querySelector("[data-prog-label]").textContent = e.target.value + "%";
+    });
+    body.addEventListener("submit", (e) => {
+      if (!e.target.matches("[data-add-action]")) return;
+      e.preventDefault();
+      const text = e.target.text.value.trim();
+      if (!text) return;
+      change((it) => { it.actions.push({ id: LooksStore.uid(), text }); });
+      drawPart();
+      const box = body.querySelector("[data-add-action] input");
+      if (box) box.focus();
+    });
+  }
+
+  // ---- Photo: new (a picked file) or an existing one (date, note, Delete) ----
+  function photoForm(itemId, photoId, file) {
+    const it = LooksStore.get(itemId);
+    const p = photoId ? it.photos.find((x) => x.id === photoId) : null;
+    if (photoId && !p) return openItem(itemId);
+    let newFile = file || null;
+    const today = L.today();
+    const form = openForm(p ? "Photo" : "New photo", `
+      <div class="jr-photo-pick">
+        ${p ? `<button type="button" class="jr-view-photo" data-full aria-label="Show full screen">${imgTag(p.full)}</button>`
+            : `<img data-photo-preview alt=""><label class="btn btn-sm jr-change">Choose another<input type="file" accept="image/*" class="jr-file" data-photo-file></label>`}
+      </div>
+      ${field("Date", dateInput("date", p ? p.date : today, "required"))}
+      ${field("Note", textInput("note", p ? p.note : "", 'maxlength="200" autocomplete="off" placeholder="Optional"'))}`,
+    async (v) => {
+      if (!v.date) return "Pick a date.";
+      if (v.date > today) return "That date hasn't happened yet.";
+      if (p) return LooksStore.commit((d) => { Object.assign(d.items.find((x) => x.id === itemId).photos.find((x) => x.id === photoId), { date: v.date, note: v.note }); });
+      if (!newFile) return "Choose a photo.";
+      const stored = await storePhoto(newFile);
+      const error = LooksStore.commit((d) => {
+        d.items.find((x) => x.id === itemId).photos.push({ id: LooksStore.uid(), date: v.date, note: v.note, ...stored, created: Date.now() });
+      });
+      if (error) Media.del([stored.full, stored.thumb]).catch(() => {});
+      return error;
+    }, {
+      submitLabel: p ? "Save" : "Add photo",
+      after: () => openItem(itemId),
+      onDelete: !p ? null : () => {
+        const error = LooksStore.commit((d) => { const x = d.items.find((y) => y.id === itemId); x.photos = x.photos.filter((y) => y.id !== photoId); });
+        if (!error) Media.del(C.mediaOfPhoto(p)).catch(() => {});
+        return error;
+      },
+      confirmText: "Delete this photo? This can't be undone.",
+    });
+    fillImages(form);
+    if (p) form.querySelector("[data-full]").addEventListener("click", () => fullScreen(p.full));
+    else {
+      const img = form.querySelector("[data-photo-preview]");
+      const show = (f) => { const u = URL.createObjectURL(f); img.onload = () => URL.revokeObjectURL(u); img.src = u; };
+      if (newFile) show(newFile);
+      form.querySelector("[data-photo-file]").addEventListener("change", (e) => { if (e.target.files[0]) { newFile = e.target.files[0]; show(newFile); } });
+    }
+  }
+
+  // Photo full screen: tap anywhere or Escape to close
+  function fullScreen(mediaId) {
+    const box = document.createElement("div");
+    box.className = "jr-full";
+    box.setAttribute("role", "dialog");
+    box.setAttribute("aria-label", "Photo");
+    box.tabIndex = -1;
+    box.innerHTML = `<img alt=""><button type="button" class="jr-full-close" aria-label="Close">${ICON.close}</button>`;
+    Media.url(mediaId).then((u) => { if (u) box.querySelector("img").src = u; });
+    const close = () => { box.remove(); document.removeEventListener("keydown", onKey, true); };
+    const onKey = (e) => { if (e.key === "Escape") { e.stopPropagation(); close(); } };
+    box.addEventListener("click", close);
+    document.addEventListener("keydown", onKey, true);
+    document.body.appendChild(box);
+    box.focus();
+  }
+
+  // ---- Compare: any two photos, side by side or with a drag slider ----
+  const cmp = { mode: "side" };
+  function compareView(itemId) {
+    const it = LooksStore.get(itemId);
+    const photos = C.photos(it);
+    if (photos.length < 2) return openItem(itemId);
+    let a = C.firstPhoto(it).id, b = C.latestPhoto(it).id;
+    const byId = (pid) => photos.find((p) => p.id === pid) || photos[0];
+    const options = (sel) => photos.map((p) => `<option value="${esc(p.id)}"${p.id === sel ? " selected" : ""}>${esc(fmtDate(p.date) + (p.note ? " · " + p.note : ""))}</option>`).join("");
+    const body = openModal("Compare", `
+      <div class="lk-cmp">
+        ${seg("cmpMode", [["side", "Side by side"], ["slider", "Slider"]], cmp.mode)}
+        <div class="form-row lk-cmp-pick">
+          ${field("Before", `<select name="cmpA">${options(a)}</select>`)}
+          ${field("After", `<select name="cmpB">${options(b)}</select>`)}
+        </div>
+        <div data-cmp-view></div>
+        <div class="form-actions"><button type="button" class="btn" data-cmp-back>Back</button></div>
+      </div>`);
+    body.parentElement.classList.add("jr-view-box", "lk-box");
+    const view = body.querySelector("[data-cmp-view]");
+    const draw = () => {
+      const A = byId(a), B = byId(b);
+      if (cmp.mode === "slider") {
+        // Both pictures fill the same frame (the "after" photo's shape); the "before" one is clipped at the handle
+        const ratio = (B.w || 3) / (B.h || 4);
+        view.innerHTML = `
+          <div class="lk-slider" data-slider style="aspect-ratio:${ratio};width:min(100%, calc(64vh * ${ratio}));--pos:50%">
+            ${imgTag(B.full, "After")}
+            <div class="lk-slider-top">${imgTag(A.full, "Before")}</div>
+            <span class="lk-slider-tag l">${fmtShort(A.date)}</span><span class="lk-slider-tag r">${fmtShort(B.date)}</span>
+            <span class="lk-slider-line" aria-hidden="true"><i></i></span>
+          </div>
+          <input type="range" class="jr-seek lk-range lk-slider-range" min="0" max="100" step="1" value="50" style="--p:50%" aria-label="Slide between before and after" data-slide data-native>`;
+      } else {
+        const fig = (p, word) => `<figure class="lk-shot-fig"><button type="button" class="lk-shot" data-full="${esc(p.full)}" style="aspect-ratio:${p.w || 3}/${p.h || 4}" aria-label="${word}, full screen">${imgTag(p.full, word)}</button><figcaption><b>${word}</b> · ${fmtDate(p.date)}</figcaption></figure>`;
+        view.innerHTML = `<div class="lk-cmp-side">${fig(A, "Before")}${fig(B, "After")}</div>`;
+      }
+      fillImages(view);
+    };
+    const setPos = (pct) => {
+      const s = view.querySelector("[data-slider]"), r = view.querySelector("[data-slide]");
+      if (!s) return;
+      const v = Math.max(0, Math.min(100, pct));
+      s.style.setProperty("--pos", v + "%");
+      r.value = Math.round(v);
+      r.style.setProperty("--p", v + "%");
+    };
+    body.addEventListener("change", (e) => {
+      if (e.target.name === "cmpMode") { cmp.mode = e.target.value; draw(); }
+      if (e.target.name === "cmpA") { a = e.target.value; draw(); }
+      if (e.target.name === "cmpB") { b = e.target.value; draw(); }
+    });
+    body.addEventListener("input", (e) => { if (e.target.matches("[data-slide]")) setPos(Number(e.target.value)); });
+    body.addEventListener("click", (e) => {
+      if (e.target.closest("[data-cmp-back]")) return openItem(itemId);
+      const full = e.target.closest("[data-full]");
+      if (full) fullScreen(full.dataset.full);
+    });
+    // Drag anywhere on the picture (sideways; up / down still scrolls the sheet)
+    let dragging = false;
+    const at = (e) => { const s = view.querySelector("[data-slider]"); const r = s.getBoundingClientRect(); setPos(((e.clientX - r.left) / r.width) * 100); };
+    view.addEventListener("pointerdown", (e) => {
+      const s = e.target.closest("[data-slider]");
+      if (!s) return;
+      dragging = true;
+      try { s.setPointerCapture(e.pointerId); } catch (err) { /* older browsers */ }
+      at(e);
+    });
+    view.addEventListener("pointermove", (e) => { if (dragging) at(e); });
+    const stop = () => { dragging = false; };
+    view.addEventListener("pointerup", stop);
+    view.addEventListener("pointercancel", stop);
+    draw();
+  }
+
+  // ---- Notes forms ----
+  function howForm(itemId) {
+    const it = LooksStore.get(itemId);
+    openForm("How to do it", field("Info, tips, links", `<textarea name="how" rows="9">${esc(it.how)}</textarea>`),
+      (v) => LooksStore.commit((d) => { d.items.find((x) => x.id === itemId).how = v.how; }),
+      { after: () => openItem(itemId) });
+  }
+
+  // An action I'm taking: edit the text, move it up / down the list, Delete at the bottom
+  function actionForm(itemId, actionId) {
+    const it = LooksStore.get(itemId);
+    const i = it.actions.findIndex((a) => a.id === actionId);
+    if (i < 0) return openItem(itemId);
+    const back = () => openItem(itemId);
+    const form = openForm("Action", `
+      ${field("What I'm doing", textInput("text", it.actions[i].text, 'required maxlength="140" autocomplete="off"'))}
+      ${it.actions.length > 1 ? `<div class="form-extra">
+        <button type="button" class="btn btn-sm" data-move="-1"${i === 0 ? " disabled" : ""}>Move up</button>
+        <button type="button" class="btn btn-sm" data-move="1"${i === it.actions.length - 1 ? " disabled" : ""}>Move down</button>
+      </div>` : ""}`,
+    (v) => {
+      if (!v.text) return "Say what you're doing.";
+      return LooksStore.commit((d) => { d.items.find((x) => x.id === itemId).actions.find((a) => a.id === actionId).text = v.text; });
+    }, {
+      after: back,
+      onDelete: () => LooksStore.commit((d) => {
+        const x = d.items.find((y) => y.id === itemId);
+        x.actions = x.actions.filter((a) => a.id !== actionId);
+        for (const day of Object.keys(x.didActions)) {       // forget its ticks too
+          x.didActions[day] = x.didActions[day].filter((a) => a !== actionId);
+          if (!x.didActions[day].length) delete x.didActions[day];
+        }
+      }),
+      confirmText: "Remove this action?",
+    });
+    form.addEventListener("click", (e) => {
+      const m = e.target.closest("[data-move]");
+      if (!m) return;
+      LooksStore.commit((d) => {
+        const list = d.items.find((x) => x.id === itemId).actions;
+        const from = list.findIndex((a) => a.id === actionId), to = from + Number(m.dataset.move);
+        if (to < 0 || to >= list.length) return;
+        [list[from], list[to]] = [list[to], list[from]];
+      });
+      actionForm(itemId, actionId); // stay here so it can be moved again
+    });
+  }
+
+  // A dated update on how it's going
+  function logForm(itemId, logId) {
+    const it = LooksStore.get(itemId);
+    const g = logId ? it.log.find((x) => x.id === logId) : null;
+    if (logId && !g) return openItem(itemId);
+    const today = L.today();
+    openForm(g ? "Update" : "New update", `
+      ${field("Date", dateInput("date", g ? g.date : today, "required"))}
+      ${field("How it's going", `<textarea name="text" rows="3" maxlength="600" placeholder="e.g. Noticeably lighter after 2 weeks">${esc(g ? g.text : "")}</textarea>`)}`,
+    (v) => {
+      if (!v.text) return "Write a short update.";
+      if (!v.date) return "Pick a date.";
+      if (v.date > today) return "That date hasn't happened yet.";
+      return LooksStore.commit((d) => {
+        const x = d.items.find((y) => y.id === itemId);
+        if (g) Object.assign(x.log.find((y) => y.id === logId), { date: v.date, text: v.text });
+        else x.log.push({ id: LooksStore.uid(), date: v.date, text: v.text, created: Date.now() });
+      });
+    }, {
+      submitLabel: g ? "Save" : "Add",
+      after: () => openItem(itemId),
+      onDelete: !g ? null : () => LooksStore.commit((d) => { const x = d.items.find((y) => y.id === itemId); x.log = x.log.filter((y) => y.id !== logId); }),
+      confirmText: "Delete this update?",
+    });
+  }
 
   // ================= Actions =================
   const ACTIONS = {
@@ -338,7 +779,7 @@
       if (open) { const first = menu.querySelector(".menu-item"); if (first) first.focus(); }
     },
     add: () => addForm(),
-    open: (id) => openItem(id),
+    open: (id) => openItem(id, { fresh: true }),
     check: (id) => check(id),
     sections: () => window.openSections && window.openSections(),
     export: () => Backup.download(),
