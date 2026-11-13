@@ -1644,7 +1644,7 @@
   // Switches for the main sections (their tabs) and the parts of Life. Saved in
   // Life's settings (settings.sections), so they follow the account. Nothing is
   // deleted when a section is switched off: it is only hidden and stops counting.
-  const MAIN_SECTIONS = [["pnl", "PnL"], ["life", "Life"], ["journal", "Journal"]];
+  const MAIN_SECTIONS = [["pnl", "PnL"], ["life", "Life"], ["journal", "Journal"], ["looksmax", "Looksmax"]];
   const LIFE_SECTIONS = VIEWS.filter(([k]) => k !== "today");
   let hiddenKey = null;
   function applySections() {

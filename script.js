@@ -4,7 +4,7 @@
 // you on the same tab and the browser's back button moves between tabs.
 // A hash can also name a sub-page after a slash, e.g. #pnl/sales.
 
-const TABS = ["pnl", "life", "journal"];
+const TABS = ["pnl", "life", "journal", "looksmax"];
 
 // ---------- Liquid Glass motion ----------
 // Timings and easing are read from the CSS variables at the top of style.css.

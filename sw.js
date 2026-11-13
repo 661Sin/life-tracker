@@ -9,7 +9,7 @@
 // it in the background, the page shows "Update available, tap to refresh",
 // and only after that tap does it take over (so nothing changes mid-use).
 
-const VERSION = "2026-11-13.214113";
+const VERSION = "2026-11-13.214631";
 const CACHE = `life-tracker-${VERSION}`;
 const FONTS = "life-tracker-fonts";
 
@@ -29,6 +29,9 @@ const APP_FILES = [
   "journal-calc.js",
   "journal-store.js",
   "journal.js",
+  "looks-calc.js",
+  "looks-store.js",
+  "looks.js",
   "cloud-config.js",
   "cloud.js",
   "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.110.0/dist/umd/supabase.js",

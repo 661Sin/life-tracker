@@ -3,22 +3,27 @@
 -- Safe to run again (it skips or replaces what already exists).
 --
 -- What it makes:
---   user_data          one row per user per section (pnl / life / journal), the whole section as JSON
+--   user_data          one row per user per section (pnl / life / journal / looksmax), the whole section as JSON
 --   user_data_history  earlier versions (kept automatically whenever a row is overwritten, last 10 per section)
---   media bucket       Journal photos and audio, one folder per user ("<user id>/<file id>")
+--   media bucket       Journal photos and audio + Looksmax progress photos, one folder per user ("<user id>/<file id>")
 --   delete_my_account  lets a logged-in user delete their own account and data
 -- Row Level Security is ON everywhere: a user can only ever read or write their own rows and files.
 
 -- ---------- Sections ----------
 create table if not exists public.user_data (
   user_id    uuid        not null default auth.uid() references auth.users (id) on delete cascade,
-  section    text        not null check (section in ('pnl', 'life', 'journal')),
+  section    text        not null,
   data       jsonb       not null,
   changed_at timestamptz not null default now(),  -- when the change was made on the device (newest wins)
   updated_at timestamptz not null default now(),  -- when the server saved it (used to spot clashes)
   device     text,
   primary key (user_id, section)
 );
+-- Which sections exist. Replaced on every run, so adding a section later (Looksmax, 2026-11-13)
+-- only needs this file run again.
+alter table public.user_data drop constraint if exists user_data_section_check;
+alter table public.user_data add constraint user_data_section_check
+  check (section in ('pnl', 'life', 'journal', 'looksmax'));
 alter table public.user_data enable row level security;
 
 drop policy if exists "own rows: read"   on public.user_data;

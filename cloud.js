@@ -11,7 +11,7 @@
 //
 // Local bookkeeping (localStorage "lifeTracker.sync"):
 //   { owner: user id this device's data belongs to,
-//     sections: { pnl|life|journal: { rev: cloud updated_at last seen, hash: data last in step, changedAt } },
+//     sections: { pnl|life|journal|looksmax: { rev: cloud updated_at last seen, hash: data last in step, changedAt } },
 //     up: [media ids to upload], del: [media ids to delete] }
 // A section is "dirty" (needs uploading) when its data no longer matches `hash`.
 
@@ -30,6 +30,7 @@ const Sync = (function () {
     pnl: { label: "PnL", get: () => Store.data, put: (d) => { Store.data = Store.normalise(d); Store.save(); Store.runRecurring(); }, empty: () => Store.normalise(null) },
     life: { label: "Life", get: () => LifeStore.data, put: (d) => LifeStore.importData(d), empty: () => LifeStore.normalise(null) },
     journal: { label: "Journal", get: () => JournalStore.data, put: (d) => JournalStore.importData(d), empty: () => JournalStore.normalise(null) },
+    looksmax: { label: "Looksmax", get: () => LooksStore.data, put: (d) => LooksStore.importData(d), empty: () => LooksStore.normalise(null) },
   };
   const NAMES = Object.keys(SECTIONS);
   const STATE_KEY = "lifeTracker.sync";
@@ -74,7 +75,11 @@ const Sync = (function () {
   const sec = (s) => st.sections[s] || (st.sections[s] = { rev: null, hash: null, changedAt: 0 });
   const isDirty = (s) => hash(SECTIONS[s].get()) !== sec(s).hash;
   const hasContent = (s) => hash(SECTIONS[s].get()) !== hash(SECTIONS[s].empty());
-  const pending = () => NAMES.some(isDirty) || st.up.length > 0 || st.del.length > 0;
+  // Sections the database refuses (it was set up before that section existed, see
+  // supabase/schema.sql): they stay on this device and the rest keeps syncing.
+  const blocked = new Set();
+  const unsynced = () => NAMES.some(isDirty) || st.up.length > 0 || st.del.length > 0;          // anything not in the account yet
+  const pending = () => NAMES.some((s) => !blocked.has(s) && isDirty(s)) || st.up.length > 0 || st.del.length > 0; // …that sync can still send
 
   let user = null;      // logged-in user ({ id, email })
   let ready = false;    // first-login questions answered, syncing allowed
@@ -250,7 +255,16 @@ const Sync = (function () {
     try {
       if (!navigator.onLine) throw new Error("offline");
       await pull();
-      for (const s of NAMES) if (isDirty(s)) await push(s);
+      for (const s of NAMES) {
+        if (!isDirty(s)) continue;
+        try { await push(s); blocked.delete(s); }
+        catch (e) {
+          // "check constraint" refusal = the database doesn't know this section yet
+          if (!(e && (e.code === "23514" || /check constraint/i.test(e.message || "")))) throw e;
+          if (!blocked.has(s)) toast(`${SECTIONS[s].label} is saved on this device only for now: the database needs its one-time update (supabase/schema.sql).`);
+          blocked.add(s);
+        }
+      }
       await syncMedia();
       redrawIfNeeded();
       setStatus("synced");
@@ -291,12 +305,12 @@ const Sync = (function () {
   async function firstLogin() {
     const { data, error } = await sb.from("user_data").select("section, data, changed_at, updated_at");
     if (error) throw error; // never treat "couldn't ask" as "the account is empty"
-    const rows = data || [];
     const local = NAMES.filter(hasContent);
     const media = await localMediaIds();
     const hasLocal = local.length > 0 || media.length > 0;
     const summary = local.map((s) => SECTIONS[s].label).concat(media.length ? [`${media.length} photo${media.length === 1 ? "" : "s"} / audio`] : []).join(", ");
 
+    const rows = (data || []).filter((r) => SECTIONS[r.section]);
     if (!hasLocal) {                                   // nothing here: just use the account
       for (const r of rows) apply(r.section, r);
     } else if (!rows.length) {                        // empty account: offer to upload
@@ -333,11 +347,12 @@ const Sync = (function () {
     if (typeof Player !== "undefined") Player.stop();
     silent++;
     try {
-      for (const k of [PNL_STORAGE_KEY, LIFE_STORAGE_KEY, JOURNAL_STORAGE_KEY]) localStorage.removeItem(k);
+      for (const k of [PNL_STORAGE_KEY, LIFE_STORAGE_KEY, JOURNAL_STORAGE_KEY, LOOKS_STORAGE_KEY]) localStorage.removeItem(k);
       await Media.clear().catch(() => {});
       Store.load();
       LifeStore.load();
       JournalStore.load();
+      LooksStore.load();
     } finally { silent--; }
     const owner = st.owner;
     st = fresh();
@@ -353,7 +368,7 @@ const Sync = (function () {
     ready = false;
     try {
       if (st.owner && st.owner !== user.id) {
-        if (pending() && !confirm("This device has changes from another account that never reached the cloud. Logging in removes them. Continue?")) {
+        if (unsynced() && !confirm("This device has changes from another account that never reached the cloud. Logging in removes them. Continue?")) {
           await sb.auth.signOut({ scope: "local" });
           user = null;
           return;
@@ -671,7 +686,7 @@ const Sync = (function () {
 
   async function logOut() {
     await syncNow();
-    if (pending() && !confirm("Some changes haven't reached the cloud yet (are you offline?). If you log out now they're lost from this device. Log out anyway?")) return;
+    if (unsynced() && !confirm("Some changes haven't reached the cloud yet (are you offline?). If you log out now they're lost from this device. Log out anyway?")) return;
     await sb.auth.signOut({ scope: "local" });
     await wipeLocal();
     st = fresh();
@@ -681,7 +696,7 @@ const Sync = (function () {
 
   function deleteAccount() {
     sheet("Delete account",
-      `<p class="cloud-warn">Deletes your account and ALL its data (PnL, Life, Journal, photos and audio) from the cloud and this device. This can't be undone.</p>
+      `<p class="cloud-warn">Deletes your account and ALL its data (PnL, Life, Journal, Looksmax, photos and audio) from the cloud and this device. This can't be undone.</p>
        <label class="field"><span class="field-label">Type DELETE to confirm</span><input name="confirm" type="text" autocomplete="off" autocapitalize="characters"></label>`,
       "Delete account", async (f) => {
         if (f.confirm.value.trim().toUpperCase() !== "DELETE") return "Type DELETE to confirm.";

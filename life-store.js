@@ -82,27 +82,34 @@ const LifeStore = {
   },
 };
 
-// ---------- Backup (PnL + Life + Journal in one file) ----------
-// File shape: { app: "lifeTracker", version: 3, exported, pnl, life, journal, media? }.
+// ---------- Backup (PnL + Life + Journal + Looksmax in one file) ----------
+// File shape: { app: "lifeTracker", version: 4, exported, pnl, life, journal, looksmax, media? }.
 //   media (optional, photos / audio): [{ id, type, data ("data:..." text) }]
-// Older files still import: version 2 (PnL + Life) leaves Journal untouched;
+// Older files still import: a section the file doesn't have is left untouched
+// (version 3 has no Looksmax, version 2 no Journal either);
 // PnL-only backups (just the PnL data object) replace PnL only. A backup
 // without media keeps the photos / audio already in this browser.
 const Backup = {
   hasJournal: () => typeof JournalStore !== "undefined" && !!JournalStore.data,
+  hasLooks: () => typeof LooksStore !== "undefined" && !!LooksStore.data,
+  // Every photo / audio file the data points to (Journal + Looksmax progress photos)
+  mediaIds() {
+    return new Set([...(this.hasJournal() ? JournalStore.allMediaIds() : []), ...(this.hasLooks() ? LooksStore.allMediaIds() : [])]);
+  },
 
   async build(withMedia) {
-    const out = { app: "lifeTracker", version: 3, exported: LifeCalc.today(), pnl: Store.data, life: LifeStore.data };
+    const out = { app: "lifeTracker", version: 4, exported: LifeCalc.today(), pnl: Store.data, life: LifeStore.data };
     if (this.hasJournal()) out.journal = JournalStore.data;
+    if (this.hasLooks()) out.looksmax = LooksStore.data;
     if (withMedia && this.hasJournal()) {
-      const keep = JournalStore.allMediaIds();
+      const keep = this.mediaIds();
       const rows = (await Media.all()).filter((r) => keep.has(r.id));
       out.media = [];
       for (const r of rows) out.media.push({ id: r.id, type: r.type, data: await Media.toDataUrl(r.blob) });
     }
     return JSON.stringify(out, null, withMedia ? 0 : 2);
   },
-  exportText() { return JSON.stringify({ app: "lifeTracker", version: 3, exported: LifeCalc.today(), pnl: Store.data, life: LifeStore.data, journal: this.hasJournal() ? JournalStore.data : undefined }, null, 2); },
+  exportText() { return JSON.stringify({ app: "lifeTracker", version: 4, exported: LifeCalc.today(), pnl: Store.data, life: LifeStore.data, journal: this.hasJournal() ? JournalStore.data : undefined, looksmax: this.hasLooks() ? LooksStore.data : undefined }, null, 2); },
 
   fileName: (withMedia) => `life-tracker-backup-${LifeCalc.today()}${withMedia ? "-with-media" : ""}.json`,
 
@@ -142,10 +149,10 @@ const Backup = {
   },
   deliver(text, withMedia) { if (this.wantsShare()) this.offerFile(text, withMedia); else { this.save(text, withMedia); closeModal(); } },
 
-  // Export: when there are Journal photos / audio, asks whether to include them
+  // Export: when there are photos / audio (Journal, Looksmax), asks whether to include them
   async download() {
     let sizes = { photos: 0, audio: 0, count: 0 };
-    if (this.hasJournal() && JournalStore.allMediaIds().size) sizes = await Media.sizes().catch(() => sizes);
+    if (this.hasJournal() && this.mediaIds().size) sizes = await Media.sizes().catch(() => sizes);
     if (!sizes.count) return this.deliver(await this.build(false), false);
     const B = JournalCalc.bytes;
     const body = openModal("Export backup", `
@@ -167,11 +174,12 @@ const Backup = {
   // Returns a short description of what was restored
   async importText(text) {
     const d = JSON.parse(text); // throws if the file isn't valid JSON
-    if (d && d.app === "lifeTracker" && (d.pnl || d.life || d.journal)) {
+    if (d && d.app === "lifeTracker" && (d.pnl || d.life || d.journal || d.looksmax)) {
       const parts = [];
       if (d.pnl) { Store.importText(JSON.stringify(d.pnl)); parts.push("PnL"); }
       if (d.life) { LifeStore.importData(d.life); parts.push("Life"); }
       if (d.journal && this.hasJournal()) { JournalStore.importData(d.journal); parts.push("Journal"); }
+      if (d.looksmax && this.hasLooks()) { LooksStore.importData(d.looksmax); parts.push("Looksmax"); }
       if (Array.isArray(d.media) && d.media.length && this.hasJournal()) {
         await Media.clear();
         for (const m of d.media) await Media.put(await Media.fromDataUrl(m.data), m.id);

@@ -150,7 +150,7 @@ const LifeCalc = {
   // ================= My sections (what the person has switched on) =================
   // Saved in settings.sections as { key: true|false }. Anything not saved counts
   // as ON, so accounts from before this existed keep everything.
-  SECTION_KEYS: ["pnl", "life", "journal", "habits", "plans", "fitness", "school", "sleep"],
+  SECTION_KEYS: ["pnl", "life", "journal", "looksmax", "habits", "plans", "fitness", "school", "sleep"],
   sections(data) {
     const saved = ((data && data.settings) || {}).sections || {};
     const out = {};

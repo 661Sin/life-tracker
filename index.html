@@ -55,6 +55,13 @@
         <path d="M7 3.5h10a1.5 1.5 0 0 1 1.5 1.5v15.2a.6.6 0 0 1-.95.49L12 16.9l-5.55 3.79a.6.6 0 0 1-.95-.49V5A1.5 1.5 0 0 1 7 3.5z"/>
       </svg>
     </a>
+    <a href="#looksmax" class="tab" data-tab="looksmax">
+      <span class="tab-label">Looksmax</span>
+      <svg class="tab-icon" viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M10.5 3.5l1.9 5.1 5.1 1.9-5.1 1.9-1.9 5.1-1.9-5.1-5.1-1.9 5.1-1.9z"/>
+        <path d="M18 14l.95 2.55L21.5 17.5l-2.55.95L18 21l-.95-2.55-2.55-.95 2.55-.95z"/>
+      </svg>
+    </a>
   </nav>
 
   <!-- One section per tab; only the active one is shown -->
@@ -81,6 +88,14 @@
       </header>
       <!-- Filled in by journal.js: song of the week, then the saved feed -->
       <div id="journal-root"></div>
+    </section>
+
+    <section class="page" id="page-looksmax">
+      <header class="page-header">
+        <h1>Looksmax</h1>
+      </header>
+      <!-- Filled in by looks.js: one card per thing I'm working on -->
+      <div id="looksmax-root"></div>
     </section>
   </main>
 
@@ -112,6 +127,9 @@
   <!-- Life: same pattern (calculations, storage + combined backup, screens) -->
   <script src="life-calc.js"></script>
   <script src="life-store.js"></script>
+  <!-- Looksmax calculations + storage come before life.js: Life shows today's items and counts them in the day score -->
+  <script src="looks-calc.js"></script>
+  <script src="looks-store.js"></script>
   <script src="life.js"></script>
   <!-- Journal: same pattern (photos / audio in IndexedDB, see journal-store.js) -->
   <!-- Global music player (song of the week) -->
@@ -119,6 +137,8 @@
   <script src="journal-calc.js"></script>
   <script src="journal-store.js"></script>
   <script src="journal.js"></script>
+  <!-- Looksmax screens (after Journal: progress photos use its Media store) -->
+  <script src="looks.js"></script>
   <!-- Accounts + cloud sync: Supabase's JS library (exact version, from a CDN), then our sync code -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.110.0/dist/umd/supabase.js"></script>
   <script src="cloud.js"></script>
