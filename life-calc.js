@@ -139,11 +139,14 @@ const LifeCalc = {
   //           a gym habit is how workouts count)
   //   tasks:  % of tasks due that day that are done (skipped if none due)
   //   sleep:  100 within 1h of the target, 50 within 2h, else 0 (skipped if not logged)
+  //   looks:  % of that day's Looksmax items worked on, counted exactly like habits.
+  //           The items arrive as data.looks (habit-shaped, from LooksCalc.habits):
+  //           the screen adds them, they are never stored in Life data.
   // Sections switched off in My sections are ignored (see visible() below).
   // Score = average of the parts that apply. Grey ("none") when nothing at all
   // was logged that day. Which parts count and the colour thresholds are in
   // settings.dayScore.
-  DAY_SCORE: { good: 80, mid: 50, habits: true, tasks: true, sleep: true },
+  DAY_SCORE: { good: 80, mid: 50, habits: true, tasks: true, sleep: true, looks: true },
   dayScoreSettings(data) { return { ...this.DAY_SCORE, ...((data.settings || {}).dayScore || {}) }; },
   habitActiveOn(h, date) { return date >= this.habitStart(h) && (!h.archived || date < h.archived); },
 
@@ -162,7 +165,7 @@ const LifeCalc = {
   // standard count as School.
   visible(data) {
     const on = this.sections(data);
-    if (on.habits && on.plans && on.fitness && on.school && on.sleep) return data;
+    if (on.habits && on.plans && on.fitness && on.school && on.sleep && on.looksmax) return data;
     return {
       ...data,
       habits: on.habits ? data.habits : [],
@@ -172,6 +175,7 @@ const LifeCalc = {
       workouts: on.fitness ? data.workouts : [],
       bodyweight: on.fitness ? data.bodyweight : [],
       sleep: on.sleep ? data.sleep : [],
+      looks: on.looksmax ? data.looks : [],
     };
   },
 
@@ -191,6 +195,12 @@ const LifeCalc = {
       const done = due.filter((t) => t.done).length;
       parts.tasks = { done, total: due.length, pct: (done / due.length) * 100 };
     }
+    const scheduledOn = (h) => this.habitActiveOn(h, date) && (this.isWeekly(h) ? this.isDone(h, date) : this.isScheduled(h, date));
+    const looks = (data.looks || []).filter(scheduledOn);
+    if (cfg.looks && looks.length) {
+      const done = looks.filter((h) => this.isDone(h, date)).length;
+      parts.looks = { done, total: looks.length, pct: (done / looks.length) * 100 };
+    }
     const night = data.sleep.find((s) => s.date === date);
     if (cfg.sleep && night) {
       const hours = this.sleepHours(night.bed, night.wake);
@@ -199,7 +209,8 @@ const LifeCalc = {
       parts.sleep = { hours, target, pct: off <= 1 ? 100 : off <= 2 ? 50 : 0 };
     }
     const logged = data.habits.some((h) => this.isDone(h, date)) || data.tasks.some((t) => t.done === date) ||
-      due.some((t) => t.done) || !!night || data.workouts.some((w) => w.date === date);
+      due.some((t) => t.done) || !!night || data.workouts.some((w) => w.date === date) ||
+      (data.looks || []).some((h) => this.isDone(h, date));
     const list = Object.values(parts);
     if (!logged || !list.length) return { date, colour: "none", score: null, parts, logged };
     const score = Math.round(this.sum(list, (p) => p.pct) / list.length);

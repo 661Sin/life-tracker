@@ -24,7 +24,10 @@
   const D = () => LifeStore.data;
   // My sections: what is switched on, and the data with switched-off parts left out
   const on = () => L.sections(D());
-  const V = () => L.visible(D());
+  // Life data plus the Looksmax items (as habits), which the day score counts as their own part.
+  // Only ever read from: it is never saved.
+  const SD = () => ({ ...D(), looks: LooksCalc.habits(LooksStore.data) });
+  const V = () => L.visible(SD());
   const views = () => VIEWS.filter(([k]) => k === "today" || on()[k]);
 
   // ================= Formatting helpers =================
@@ -235,6 +238,10 @@
       })));
     }
 
+    // Looksmax items wanted today (only while that section is switched on): one tap = worked on it
+    const looks = on().looksmax ? LooksCalc.dueToday(LooksStore.data, today) : [];
+    if (looks.length) html += section("Looksmax", listCard(looks.map((it) => lookRow(it, today, "tick-look"))));
+
     if (dueTasks.length) html += section("Due", listCard(dueTasks.map((t) => taskRow(t, today))));
 
     if (school.length) {
@@ -269,7 +276,7 @@
   // summary animation). opts.small = no day numbers (compact).
   function wheelSvg(d, month, opts = {}) {
     const today = L.today();
-    const ms = L.monthScores(d, month, today);
+    const ms = L.monthScores(SD(), month, today);
     const n = ms.days.length, step = 360 / n;
     const { size, R, r } = WHEEL;
     const slices = ms.days.map((day, i) => {
@@ -311,12 +318,13 @@
   function wheelDetail(d) {
     const date = wheelUi.pick;
     if (!date) return `<p class="lf-wheel-hint">Tap a day to see its score.</p>`;
-    const s = L.dayScore(d, date);
+    const s = L.dayScore(SD(), date);
     const p = s.parts;
     const bits = [];
     if (p.habits) bits.push(`Habits <b>${p.habits.done}/${p.habits.total}</b>`);
     if (p.tasks) bits.push(`Tasks <b>${p.tasks.done}/${p.tasks.total}</b>`);
     if (p.sleep) bits.push(`Sleep <b>${fmtHours(p.sleep.hours)}</b>`);
+    if (p.looks) bits.push(`Looksmax <b>${p.looks.done}/${p.looks.total}</b>`);
     const big = s.future ? `<span class="muted">Not yet</span>` : s.score === null ? `<span class="muted">Nothing logged</span>`
       : `<span class="lf-score lf-score-${s.colour}">${s.score}%</span>`;
     return `<div class="lf-wheel-day">
@@ -410,6 +418,20 @@
   let openDayUpdate = () => {};
   ACTIONS["update-day"] = (date) => openDayUpdate(date || L.today());
 
+  // A Looksmax item as a row with a tick (Today, and the check-in's Looksmax step)
+  function lookRow(it, date, action, cls = "") {
+    const C = LooksCalc, done = C.isDone(it, date), s = C.streak(it, date);
+    return rowEl({
+      action: action === "tick-look" ? action : "", id: it.id, cls: cls + (done ? " done" : ""),
+      lead: tick(done, action, it.id, `${it.name}: worked on it`),
+      title: `${it.emoji ? `<span class="lf-emoji">${esc(it.emoji)}</span>` : ""}${esc(it.name)}`,
+      meta: C.isWeekly(it) ? `${C.weekCount(it, date)}/${C.weeklyTarget(it)} this week` : s ? `🔥 ${plural(s, "day")}` : "",
+    });
+  }
+  // Saving announces "lifetracker:looks": this page and the Looksmax page both redraw
+  const toggleLook = (id, date) => LooksStore.commit((d) => { LooksCalc.toggle(d.items.find((x) => x.id === id), date); });
+  ACTIONS["tick-look"] = (id) => toggleLook(id, L.today());
+
   ACTIONS["tick-habit"] = (id, el) => {
     const day = (el && el.dataset && el.dataset.date) || L.today(); // heatmap cells pass a past day
     save((d) => {
@@ -421,7 +443,8 @@
   // ---------- Day score settings (Today ⋯) ----------
   function scoreSettingsForm() {
     const c = L.dayScoreSettings(D());
-    const check = (name, label, on) => `<label class="check"><input type="checkbox" name="${name}"${on ? " checked" : ""}> ${label}</label>`;
+    const looksOn = on().looksmax;
+    const check =(name, label, on) => `<label class="check"><input type="checkbox" name="${name}"${on ? " checked" : ""}> ${label}</label>`;
     openForm("Day score", `
       <div class="form-row lf-pair">
         ${field("🟢 Green from (%)", numInput("good", c.good, 'min="1" max="100" step="1" inputmode="numeric"'))}
@@ -429,12 +452,14 @@
       </div>
       <p class="field-hint">Below orange is 🔴 red. Nothing logged is ⚪ grey.</p>
       ${fieldDiv("Counts towards the score", `<div class="lf-checks">
-        ${check("habits", "Habits done", c.habits)}${check("tasks", "Tasks due that day", c.tasks)}${check("sleep", "Sleep near my target", c.sleep)}</div>`)}`,
+        ${check("habits", "Habits done", c.habits)}${check("tasks", "Tasks due that day", c.tasks)}${check("sleep", "Sleep near my target", c.sleep)}
+        ${looksOn ? check("looks", "Looksmax check-ins", c.looks) : ""}</div>`)}`,
     (v) => {
       const good = Math.round(num(v.good)), mid = Math.round(num(v.mid));
+      const looks = looksOn ? !!v.looks : c.looks; // not shown while Looksmax is switched off: left as it was
       if (!(good > mid && mid >= 0 && good <= 100)) return "Green must be above orange (between 0 and 100).";
-      if (!v.habits && !v.tasks && !v.sleep) return "Pick at least one part to count.";
-      return LifeStore.commit((dd) => { dd.settings.dayScore = { good, mid, habits: !!v.habits, tasks: !!v.tasks, sleep: !!v.sleep }; });
+      if (!v.habits && !v.tasks && !v.sleep && !(looksOn && looks)) return "Pick at least one part to count.";
+      return LifeStore.commit((dd) => { dd.settings.dayScore = { good, mid, habits: !!v.habits, tasks: !!v.tasks, sleep: !!v.sleep, looks }; });
     });
   }
   ACTIONS["score-settings"] = scoreSettingsForm;
@@ -1377,7 +1402,7 @@
   // skipped. Ticks save straight away; Sleep saves on Next. The step reached is
   // remembered per day (data.checkins) so closing halfway picks up there.
   // Works for any past day too (from the wheel), to fill in a missed day.
-  const CI_LABEL = { sleep: "Sleep", habits: "Habits", plans: "Plans", fitness: "Fitness", school: "School", summary: "Summary" };
+  const CI_LABEL = { sleep: "Sleep", habits: "Habits", looks: "Looksmax", plans: "Plans", fitness: "Fitness", school: "School", summary: "Summary" };
   let ci = null; // { date, steps, i, startColour, workoutYes }
 
   openDayUpdate = (date = L.today()) => {
@@ -1385,9 +1410,11 @@
     if (date > L.today()) return;
     const use = on(); // steps for sections switched off in My sections are left out
     const schoolDue = L.dueStandards(d.standards, date, 14).length > 0;
-    const steps = [...["sleep", "habits", "plans", "fitness"].filter((s) => use[s]), ...(use.school && schoolDue ? ["school"] : []), "summary"];
+    const looksDue = use.looksmax && LooksStore.data.items.some((it) => LooksCalc.fillableOn(it, date));
+    const steps = [...(use.sleep ? ["sleep"] : []), ...(use.habits ? ["habits"] : []), ...(looksDue ? ["looks"] : []),
+      ...["plans", "fitness"].filter((s) => use[s]), ...(use.school && schoolDue ? ["school"] : []), "summary"];
     const saved = Number(d.checkins[date]) || 0;
-    ci = { date, steps, i: Math.min(saved, steps.length - 1), startColour: L.dayScore(d, date).colour, workoutYes: false };
+    ci = { date, steps, i: Math.min(saved, steps.length - 1), startColour: L.dayScore(SD(), date).colour, workoutYes: false };
     const today = L.today();
     const body = openModal(date === today ? "Update my day" : `Update ${fmtDay(date)}`, `
       <div class="lf-ci" data-ci>
@@ -1468,6 +1495,11 @@
           meta: L.isWeekly(h) ? `${L.weekCount(h, ci.date)}/${L.weeklyTarget(h)} this week` : "" });
       }), "lf-in-sheet") : "");
     },
+    looks() {
+      const list = LooksStore.data.items.filter((it) => LooksCalc.fillableOn(it, ci.date));
+      return ciHead("Looksmax", list.length ? "" : "Nothing for this day.") +
+        (list.length ? listCard(list.map((it) => lookRow(it, ci.date, "ci-look", "lf-ci-look")), "lf-in-sheet") : "");
+    },
     plans() {
       const d = D(), today = L.today();
       const list = L.sortTasks(d.tasks.filter((t) => t.due === ci.date || (ci.date === today && !t.done && t.due && t.due < today)));
@@ -1514,13 +1546,14 @@
         </div>`).join("");
     },
     summary() {
-      const s = L.dayScore(D(), ci.date);
+      const s = L.dayScore(SD(), ci.date);
       const p = s.parts;
       const word = { good: "Green day", mid: "Orange day", bad: "Red day", none: "Nothing logged yet" }[s.colour] || "";
       const rowsHtml = [
         p.habits ? [`Habits`, `${p.habits.done}/${p.habits.total}`, p.habits.pct] : null,
         p.tasks ? [`Tasks`, `${p.tasks.done}/${p.tasks.total}`, p.tasks.pct] : null,
         p.sleep ? [`Sleep`, `${fmtHours(p.sleep.hours)} (target ${fmtNum(p.sleep.target)}h)`, p.sleep.pct] : null,
+        p.looks ? [`Looksmax`, `${p.looks.done}/${p.looks.total}`, p.looks.pct] : null,
       ].filter(Boolean).map(([k, v, pc]) => `<div class="lf-ci-part"><span>${k}</span><span class="muted">${v}</span><b>${Math.round(pc)}%</b></div>`).join("");
       return `<div class="lf-ci-summary">
           <div class="lf-ci-wheel" data-ci-wheel>${wheelSvg(D(), ci.date.slice(0, 7), { override: { [ci.date]: ci.startColour } })}</div>
@@ -1536,7 +1569,7 @@
 
   // Summary: the day's slice starts in its old colour, then lifts out and fades to the new one
   function animateSummary(el) {
-    const s = L.dayScore(D(), ci.date);
+    const s = L.dayScore(SD(), ci.date);
     const g = el.querySelector(`.lf-slice[data-date="${ci.date}"]`);
     if (!g) return;
     const go = () => {
@@ -1585,6 +1618,8 @@
         });
         return redraw();
       }
+      const lk = t.closest("[data-action=ci-look]") || (t.closest(".lf-ci-look") && t.closest(".lf-ci-look").querySelector("[data-action=ci-look]"));
+      if (lk) { toggleLook(lk.dataset.id, ci.date); return redraw(); }
       const tk = t.closest("[data-action=ci-task]");
       if (tk) { LifeStore.commit((dd) => toggleTask(dd, tk.dataset.id, ci.date)); return redraw(); }
       const mv = t.closest("[data-ci-tomorrow]");
@@ -1765,6 +1800,7 @@
   }
   window.addEventListener("hashchange", () => { const was = onLife; if (readHash()) render(was); });
   document.addEventListener("lifetracker:imported", () => render());
+  document.addEventListener("lifetracker:looks", () => { if (onLife) render(); }); // a Looksmax check-in changes Today and the day score
 
   // Redraw after midnight so "today" moves on
   let lastDay = L.today();

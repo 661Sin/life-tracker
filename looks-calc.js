@@ -43,6 +43,14 @@ const LooksCalc = {
     return LifeCalc.isScheduled(h, date);
   },
   dueToday(data, today) { return this.active(data).filter((it) => this.dueOn(it, today)); },
+  // Can be filled in for that day (the check-in for a past day): like dueOn, but
+  // "X a week" items always show, even if that week's target was reached later.
+  fillableOn(it, date) {
+    const h = this.asHabit(it);
+    if (it.finished && date > it.finished) return false;
+    if (date < h.created && !this.isDone(it, date)) return false;
+    return LifeCalc.isWeekly(h) || LifeCalc.isScheduled(h, date);
+  },
 
   // Tick / untick a day. Unticking also forgets which actions were done that day.
   toggle(it, date) {
