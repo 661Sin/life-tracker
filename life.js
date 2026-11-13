@@ -22,6 +22,10 @@
   let view = "today";
   const L = LifeCalc;
   const D = () => LifeStore.data;
+  // My sections: what is switched on, and the data with switched-off parts left out
+  const on = () => L.sections(D());
+  const V = () => L.visible(D());
+  const views = () => VIEWS.filter(([k]) => k === "today" || on()[k]);
 
   // ================= Formatting helpers =================
   const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -215,8 +219,8 @@
           <div class="lf-today-date">${F_LONG.format(L.toUTC(today))}</div>
           ${bits.length ? `<div class="lf-sub">${bits.join(" · ")}</div>` : ""}
         </div>
-        <div class="lf-actions">${moreMenu([["Log workout…", "add-workout"], ["Log sleep…", "add-sleep"], ["New task…", "add-task"],
-          ["Day score…", "score-settings"], ["Export backup", "export"], ["Import backup…", "import"]])}</div>
+        <div class="lf-actions">${moreMenu([on().fitness && ["Log workout…", "add-workout"], on().sleep && ["Log sleep…", "add-sleep"], on().plans && ["New task…", "add-task"],
+          ["Day score…", "score-settings"], ["My sections…", "sections"], ["Export backup", "export"], ["Import backup…", "import"]].filter(Boolean))}</div>
       </div>
       <div class="card lf-wheel-card" data-wheel-card>${wheelCard(d)}</div>
       <button type="button" class="btn btn-primary btn-big lf-update-btn" data-action="update-day">Update my day</button>`;
@@ -242,7 +246,7 @@
       }))));
     }
 
-    if (!active.length && !d.tasks.length && !d.standards.length) {
+    if (on().habits && !active.length && !d.tasks.length && !d.standards.length) {
       html += emptyCard(`<a href="#life/habits">Add a habit</a> to start colouring your days.`);
     }
     return html;
@@ -1379,8 +1383,9 @@
   openDayUpdate = (date = L.today()) => {
     const d = D();
     if (date > L.today()) return;
+    const use = on(); // steps for sections switched off in My sections are left out
     const schoolDue = L.dueStandards(d.standards, date, 14).length > 0;
-    const steps = ["sleep", "habits", "plans", "fitness", ...(schoolDue ? ["school"] : []), "summary"];
+    const steps = [...["sleep", "habits", "plans", "fitness"].filter((s) => use[s]), ...(use.school && schoolDue ? ["school"] : []), "summary"];
     const saved = Number(d.checkins[date]) || 0;
     ci = { date, steps, i: Math.min(saved, steps.length - 1), startColour: L.dayScore(d, date).colour, workoutYes: false };
     const today = L.today();
@@ -1635,8 +1640,46 @@
     });
   }
 
+  // ================= My sections =================
+  // Switches for the main sections (their tabs) and the parts of Life. Saved in
+  // Life's settings (settings.sections), so they follow the account. Nothing is
+  // deleted when a section is switched off: it is only hidden and stops counting.
+  const MAIN_SECTIONS = [["pnl", "PnL"], ["life", "Life"], ["journal", "Journal"]];
+  const LIFE_SECTIONS = VIEWS.filter(([k]) => k !== "today");
+  let hiddenKey = null;
+  function applySections() {
+    const use = on();
+    const hidden = MAIN_SECTIONS.map(([k]) => k).filter((k) => !use[k]);
+    if (hidden.join() === hiddenKey) return;
+    hiddenKey = hidden.join();
+    setHiddenTabs(hidden);
+  }
+  function sectionsSheet() {
+    const use = on();
+    const sw = ([k, label]) => `<label class="jr-switch-row"><span>${label}</span><input type="checkbox" class="jr-switch" data-section="${k}"${use[k] ? " checked" : ""}></label>`;
+    const body = openModal("My sections", `
+      <div class="lf-sections">
+        ${MAIN_SECTIONS.map(sw).join("")}
+        <div class="lf-sections-sub" data-life-parts${use.life ? "" : " hidden"}>
+          <div class="stat-label">In Life</div>
+          ${LIFE_SECTIONS.map(sw).join("")}
+        </div>
+      </div>`);
+    body.addEventListener("change", (e) => {
+      const k = e.target.dataset && e.target.dataset.section;
+      if (!k) return;
+      const next = { ...on(), [k]: e.target.checked };
+      if (!MAIN_SECTIONS.some(([m]) => next[m])) { e.target.checked = true; return toast("Keep at least one section on"); }
+      LifeStore.commit((d) => { d.settings.sections = next; });
+      body.querySelector("[data-life-parts]").hidden = !next.life;
+      render();
+    });
+  }
+  window.openSections = sectionsSheet; // also opened from the account menu (cloud.js)
+
   // ================= Actions =================
   Object.assign(ACTIONS, {
+    sections: sectionsSheet,
     menu: (id, el) => {
       const menu = el.parentElement.querySelector(".menu");
       const open = menu.hidden;
@@ -1676,9 +1719,12 @@
   const viewIndex = (key) => VIEWS.findIndex(([k]) => k === key);
   let lastScrollY = 0;
   function render(animate = false) {
+    applySections();
+    const shown = views(), keys = shown.map(([k]) => k).join();
+    if (!shown.some(([k]) => k === view)) view = "today";
     let nav = root.querySelector(".subnav");
-    if (!nav) {
-      root.innerHTML = `<nav class="subnav" aria-label="Life pages">${VIEWS.map(([key, label]) =>
+    if (!nav || nav.dataset.keys !== keys) {   // first draw, or My sections changed which pages exist
+      root.innerHTML = `<nav class="subnav" aria-label="Life pages" data-keys="${keys}">${shown.map(([key, label]) =>
         `<a href="#life/${key}" class="subnav-link" data-view="${key}">${label}</a>`).join("")}</nav><div class="pnl-pages lf-pages"></div>`;
       nav = root.querySelector(".subnav");
     }
@@ -1689,7 +1735,7 @@
     page.className = "pnl-page lf-page";
     page.dataset.view = view;
     const keepY = !animate && old && old.dataset.view === view ? window.scrollY : null;
-    page.innerHTML = PAGES[view](D());
+    page.innerHTML = PAGES[view](V());
     holder.insertBefore(page, old);
     const dir = animate && old ? Math.sign(viewIndex(view) - viewIndex(old.dataset.view)) : 0;
     if (old) slidePage(old, page, dir, () => old.remove());
@@ -1714,7 +1760,7 @@
     const [tab, sub] = location.hash.replace("#", "").split("/");
     onLife = tab === "life";
     if (!onLife) return false;
-    view = VIEWS.some(([k]) => k === sub) ? sub : "today";
+    view = views().some(([k]) => k === sub) ? sub : "today";
     return true;
   }
   window.addEventListener("hashchange", () => { const was = onLife; if (readHash()) render(was); });

@@ -115,10 +115,31 @@ function slidePage(oldEl, newEl, dir, done) {
 const sideTabs = document.querySelector(".side-tabs");
 let currentTab = null;
 
+// Main sections switched off in "My sections" (life.js tells us which): their
+// tabs disappear, and an address pointing at one moves to the first tab left.
+let hiddenTabs = new Set();
+const shownTabs = () => { const t = TABS.filter((x) => !hiddenTabs.has(x)); return t.length ? t : TABS; };
+function setHiddenTabs(list) {
+  hiddenTabs = new Set(list);
+  document.querySelectorAll(".tab").forEach((tab) => { tab.hidden = hiddenTabs.has(tab.dataset.tab) && shownTabs().length < TABS.length; });
+  showTab();
+}
+
 function showTab() {
-  let current = location.hash.replace("#", "").split("/")[0];
-  if (current === "other") current = "journal"; // old name of the Journal tab
+  const named = location.hash.replace("#", "").split("/")[0];
+  let current = named === "other" ? "journal" : named; // "other" = old name of the Journal tab
+  const open = shownTabs();
   if (!TABS.includes(current)) current = TABS[0]; // default to PnL
+  if (!open.includes(current)) {
+    current = open[0];
+    // Put the new tab in the address so every section knows which one is showing
+    // (only for plain tab addresses: a password-reset link in the address is left alone)
+    if (!named || TABS.includes(named) || named === "other") {
+      history.replaceState(null, "", "#" + current);
+      window.dispatchEvent(new Event("hashchange"));
+      return;
+    }
+  }
   const oldPage = currentTab && currentTab !== current ? document.getElementById("page-" + currentTab) : null;
   const dir = oldPage ? Math.sign(TABS.indexOf(current) - TABS.indexOf(currentTab)) : 0;
 

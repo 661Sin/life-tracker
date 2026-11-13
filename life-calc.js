@@ -139,6 +139,7 @@ const LifeCalc = {
   //           a gym habit is how workouts count)
   //   tasks:  % of tasks due that day that are done (skipped if none due)
   //   sleep:  100 within 1h of the target, 50 within 2h, else 0 (skipped if not logged)
+  // Sections switched off in My sections are ignored (see visible() below).
   // Score = average of the parts that apply. Grey ("none") when nothing at all
   // was logged that day. Which parts count and the colour thresholds are in
   // settings.dayScore.
@@ -146,7 +147,36 @@ const LifeCalc = {
   dayScoreSettings(data) { return { ...this.DAY_SCORE, ...((data.settings || {}).dayScore || {}) }; },
   habitActiveOn(h, date) { return date >= this.habitStart(h) && (!h.archived || date < h.archived); },
 
+  // ================= My sections (what the person has switched on) =================
+  // Saved in settings.sections as { key: true|false }. Anything not saved counts
+  // as ON, so accounts from before this existed keep everything.
+  SECTION_KEYS: ["pnl", "life", "journal", "habits", "plans", "fitness", "school", "sleep"],
+  sections(data) {
+    const saved = ((data && data.settings) || {}).sections || {};
+    const out = {};
+    for (const k of this.SECTION_KEYS) out[k] = saved[k] !== false;
+    return out;
+  },
+  // The data with switched-off sections left out (nothing is deleted: this is
+  // only what the screens and the day score look at). Tasks tied to a school
+  // standard count as School.
+  visible(data) {
+    const on = this.sections(data);
+    if (on.habits && on.plans && on.fitness && on.school && on.sleep) return data;
+    return {
+      ...data,
+      habits: on.habits ? data.habits : [],
+      goals: on.plans ? data.goals : [],
+      tasks: !on.plans ? [] : on.school ? data.tasks : data.tasks.filter((t) => !t.standardId),
+      standards: on.school ? data.standards : [],
+      workouts: on.fitness ? data.workouts : [],
+      bodyweight: on.fitness ? data.bodyweight : [],
+      sleep: on.sleep ? data.sleep : [],
+    };
+  },
+
   dayScore(data, date, today = this.today()) {
+    data = this.visible(data); // only sections that are switched on count (as they are now, also for past days)
     const cfg = this.dayScoreSettings(data);
     if (date > today) return { date, future: true, colour: "future", score: null, parts: {} };
     const parts = {};

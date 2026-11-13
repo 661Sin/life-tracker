@@ -92,6 +92,7 @@ const Sync = (function () {
       <button type="button" class="cloud-avatar" data-cloud="menu" aria-haspopup="true" aria-expanded="false" aria-label="Account"></button>
       <div class="menu card cloud-menu" hidden>
         <div class="cloud-who"><div class="cloud-name"></div><div class="cloud-email"></div></div>
+        <button type="button" class="menu-item" data-cloud="sections">My sections…</button>
         <button type="button" class="menu-item" data-cloud="username">Change username…</button>
         <button type="button" class="menu-item" data-cloud="versions">Earlier versions…</button>
         <button type="button" class="menu-item" data-cloud="password">Change password…</button>
@@ -602,6 +603,7 @@ const Sync = (function () {
     }
     closeMenu();
     if (what === "status") return syncNow();
+    if (what === "sections") return window.openSections && window.openSections();
     if (what === "logout") return logOut();
     if (what === "password") return changePassword();
     if (what === "username") return changeUsername();

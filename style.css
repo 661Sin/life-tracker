@@ -193,6 +193,7 @@ body {
   transition: transform var(--t-hover) var(--ease-spring), color var(--t-hover) ease;
 }
 .tab:focus-visible { outline: 2px solid var(--glass-border-strong); outline-offset: -2px; }
+.tab[hidden] { display: none; }   /* switched off in My sections */
 
 .tab-icon {
   width: 18px;
@@ -979,6 +980,10 @@ td.actions { width: 1%; white-space: nowrap; }
 .lf-score-bad { color: var(--day-bad); }
 .lf-score-none, .lf-score-future { color: var(--text-muted); }
 .lf-checks { display: flex; flex-direction: column; gap: 10px; }
+/* My sections sheet: one switch per section */
+.lf-sections, .lf-sections-sub { display: flex; flex-direction: column; gap: 14px; }
+.lf-sections-sub { padding-top: 14px; border-top: 1px solid var(--border); }
+.lf-sections-sub[hidden] { display: none; }
 
 /* Today: month wheel (one slice per day, coloured by day score) */
 .lf-head-today { margin-bottom: 16px; }
