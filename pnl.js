@@ -99,7 +99,7 @@
     `<select name="${name}" ${extra}>${options.map(([v, t]) => `<option value="${esc(v)}"${v === selected ? " selected" : ""}>${esc(t)}</option>`).join("")}</select>`;
   const productOptions = (blank) => [...(blank ? [["", blank]] : []), ...Store.data.products.slice().sort(byName).map((p) => [p.id, p.name])];
   const accountOptions = () => Store.data.accounts.map((a) => [a.id, a.name]);
-  // "Paid from / into" picker (Cash or Bank, default Cash). Hidden if only
+  // "Paid from / into" picker (Cash, Bank or Crypto, default Cash). Hidden if only
   // one account exists, then everything goes to Cash.
   const accountField = (label, value) => Store.data.accounts.length > 1
     ? field(label, select("accountId", accountOptions(), value))
@@ -198,6 +198,7 @@
         <div class="capital-parts">
           <div><span class="muted">Cash</span><b>${money(snap.balances[CASH_ID] || 0)}</b></div>
           <div><span class="muted">Bank</span><b>${money(snap.balances[BANK_ID] || 0)}</b></div>
+          <div><span class="muted">Crypto</span><b>${money(snap.balances[CRYPTO_ID] || 0)}</b></div>
           <div><span class="muted">Stock in hand</span><b>${money(snap.stockValue)}</b></div>
           <div><span class="muted">Owed to me</span><b>${money(snap.owedTotal)}</b></div>
         </div>
@@ -546,7 +547,7 @@
   };
 
   // ---------- Accounts ----------
-  // One hero card (overall balance + Cash / Bank tiles, ⋯ menu with Set balance),
+  // One hero card (overall balance + Cash / Bank / Crypto tiles, ⋯ menu with Set balance),
   // three actions (Add / Take out / Move), then the history grouped by date.
   // Tapping a tile or chip filters the history to that account; tapping a row
   // opens it for editing (Delete is at the bottom of that form).
@@ -618,13 +619,13 @@
           </div>
         </div>
         <div class="capital-value ${snap.cashTotal < 0 ? "neg" : ""}">${money(snap.cashTotal)}</div>
-        <div class="acct-tiles">${tile(CASH_ID, "Cash")}${tile(BANK_ID, "Bank")}</div>
+        <div class="acct-tiles">${PNL_BUILT_IN.map(([id, name]) => tile(id, name)).join("")}</div>
       </div>
       <div class="acct-actions">
         ${btn("Add", "acct-add", "", "btn-primary")}${btn("Take out", "acct-take")}${btn("Move", "acct-move")}
       </div>
       <h3 class="group-title">Money in and out</h3>
-      <div class="chips">${chip("", "All")}${chip(CASH_ID, "Cash")}${chip(BANK_ID, "Bank")}</div>` +
+      <div class="chips">${chip("", "All")}${PNL_BUILT_IN.map(([id, name]) => chip(id, name)).join("")}</div>` +
       (shown.length ? historyList(shown, acc) : empty(acc ? `Nothing in or out of ${esc(accountName(acc))} yet.` : "Nothing added, taken out or moved yet.")) +
       (moves.length > shown.length ? `<div class="show-more">${btn(`Show more (${moves.length - shown.length} left)`, "acct-more")}</div>` : "") +
       (corrections.length ? `<h3 class="group-title">Balance corrections</h3>` + historyList(corrections, acc) : "");
@@ -1046,7 +1047,7 @@
     });
   }
 
-  // Edit form for a move between accounts other than Cash ↔ Bank (older data)
+  // Edit form for a move between accounts other than the built-in ones (older data)
   function transferForm(id) {
     if (Store.data.accounts.length < 2) return alert("Add a second account first (e.g. Bank) to transfer between them.");
     const t = id ? Store.get("transfers", id) : { fromId: CASH_ID, toId: Store.data.accounts.find((a) => a.id !== CASH_ID).id, amount: "", date: Calc.today(), note: "" };
@@ -1077,7 +1078,7 @@
     }, { onDelete: id ? () => Store.commit((d) => removeFrom(d.transfers, id)) : null, deleteWhat: t.cashCount ? "correction" : "entry" });
   }
 
-  // Cash / Bank picker as a row of pill buttons (radio inputs underneath)
+  // Cash / Bank / Crypto picker as a row of pill buttons (radio inputs underneath)
   const accountPicker = (name, value, label) => `
     <div class="field"><span class="field-label">${label}</span>
       <div class="seg">${accountOptions().map(([v, t]) =>
@@ -1112,11 +1113,10 @@
     const form = openForm(id ? k.edit : k.title, `
       ${isMove ? `<div class="field"><span class="field-label">Move</span>
         <div class="move-pick">
-          <span class="move-acct" data-from-label></span>
+          ${select("fromId", accountOptions(), t.fromId, 'aria-label="From"')}
           <button type="button" class="btn btn-icon" data-swap aria-label="Swap direction">⇄</button>
-          <span class="move-acct" data-to-label></span>
+          ${select("toId", accountOptions(), t.toId, 'aria-label="To"')}
         </div>
-        <input type="hidden" name="fromId" value="${esc(t.fromId)}"><input type="hidden" name="toId" value="${esc(t.toId)}">
       </div>` : accountPicker("accountId", t.accountId || CASH_ID, k.label)}
       ${kind === "take" ? `<p class="field-hint">For yourself. Business costs go in Spent.</p>` : ""}
       <div data-bills>
@@ -1152,22 +1152,30 @@
       const src = isMove ? v.fromId : v.accountId;
       billsWrap.hidden = src !== CASH_ID;
       if (fromWrap) fromWrap.hidden = v.accountId === CASH_ID;
-      if (isMove) {
-        form.querySelector("[data-from-label]").textContent = accountName(v.fromId);
-        form.querySelector("[data-to-label]").textContent = accountName(v.toId);
-      }
       const now = balances[src] || 0;
       const after = now + (isMove ? -1 : k.sign) * num(v.amount);
       preview.innerHTML = `<span>${esc(accountName(src))} <b>${money(now)}</b>${num(v.amount) ? ` → <b class="${after < 0 ? "neg" : ""}">${money(after)}</b>` : ""}</span>`;
     };
+    // Move: the two sides can never be the same account. Picking the account
+    // that is already on the other side swaps them.
+    let sides = isMove ? [form.fromId.value, form.toId.value] : null;
     form.addEventListener("click", (e) => {
       if (!e.target.closest("[data-swap]")) return;
-      const a = form.fromId.value;
-      form.fromId.value = form.toId.value;
-      form.toId.value = a;
+      sides = [sides[1], sides[0]];
+      form.fromId.value = sides[0];
+      form.toId.value = sides[1];
       update();
     });
-    form.addEventListener("change", update);
+    form.addEventListener("change", (e) => {
+      if (isMove && (e.target.name === "fromId" || e.target.name === "toId")) {
+        if (form.fromId.value === form.toId.value) {
+          if (e.target.name === "fromId") form.toId.value = sides[0];
+          else form.fromId.value = sides[1];
+        }
+        sides = [form.fromId.value, form.toId.value];
+      }
+      update();
+    });
 
     let autoNote = ""; // the note we filled in, so we only replace our own text
     form.addEventListener("input", (e) => {
@@ -1188,7 +1196,7 @@
     update();
   }
 
-  // "Set balance": pick Cash or Bank (unless given), enter what you actually
+  // "Set balance": pick the account (unless given), enter what you actually
   // have now; the difference is saved as one adjustment (flagged cashCount), so
   // history and profits stay intact and deleting that entry undoes it.
   function setBalanceForm(accountId) {
@@ -1353,7 +1361,7 @@
     "add-account": () => accountForm(),
     "edit-account": accountForm,
     "delete-account": (id) => {
-      if (id === CASH_ID || id === BANK_ID) return alert("The built-in Cash and Bank accounts can't be deleted.");
+      if (PNL_BUILT_IN.some(([x]) => x === id)) return alert("The built-in Cash, Bank and Crypto accounts can't be deleted.");
       if (isUsedAccount(id)) return alert("This account has entries linked to it. Move or delete those first.");
       confirmDelete("account", "accounts", id);
     },
@@ -1377,7 +1385,7 @@
       const t = Store.get("transfers", id);
       if (!t) return;
       if (t.cashCount) return adjustForm(id);
-      const builtIn = (x) => x === CASH_ID || x === BANK_ID;
+      const builtIn = (x) => PNL_BUILT_IN.some(([b]) => b === x);
       if (t.type === "transfer" && !(builtIn(t.fromId) && builtIn(t.toId))) return transferForm(id);
       return moneyForm(null, id);
     },

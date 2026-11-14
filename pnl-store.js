@@ -11,12 +11,14 @@ const PNL_STORAGE_KEY = "lifeTracker.pnl.v1";
 const PNL_DEFAULT_CATEGORIES = ["Packaging", "Ads/Marketing", "Travel/Fuel", "Other"];
 const CASH_ID = "cash"; // the built-in Cash account, the default everywhere
 const BANK_ID = "bank"; // the built-in Bank account (cash deposits, transfers received, spending)
+const CRYPTO_ID = "crypto"; // the built-in Crypto account, kept in dollars (Set balance updates it to today's value)
+const PNL_BUILT_IN = [[CASH_ID, "Cash"], [BANK_ID, "Bank"], [CRYPTO_ID, "Crypto"]]; // always present, in this order, never deleted
 
 function pnlEmptyData() {
   return {
     version: 1,
     products: [],   // { id, name, notes, tiers: [{ min (from qty), price (per unit) }] sorted by min }
-    accounts: [{ id: CASH_ID, name: "Cash", opening: 0 }, { id: BANK_ID, name: "Bank", opening: 0 }], // { id, name, opening }
+    accounts: PNL_BUILT_IN.map(([id, name]) => ({ id, name, opening: 0 })), // { id, name, opening }
     orders: [],     // { id, productId, supplier, qty, total (whole order), orderDate, expectedDate, accountId, notes, receivedDate?, receivedQty? }
     // sale: { id, productId, qty, unitPrice, total? (when entered as a lot total), date, accountId, buyer,
     //   paidLater? true, dueDate?, payments?: [{ id, amount, date, accountId }] }
@@ -53,10 +55,10 @@ const Store = {
       if (!Array.isArray(p.tiers)) p.tiers = Calc.productTiers(p);
       delete p.prices;
     }
-    if (!d.accounts.some((a) => a.id === CASH_ID)) d.accounts.unshift({ id: CASH_ID, name: "Cash", opening: 0 });
-    if (!d.accounts.some((a) => a.id === BANK_ID)) {
-      d.accounts.splice(d.accounts.findIndex((a) => a.id === CASH_ID) + 1, 0, { id: BANK_ID, name: "Bank", opening: 0 });
-    }
+    // The built-in accounts are added to older data (Bank, then Crypto, came later), each after the one before it
+    PNL_BUILT_IN.forEach(([id, name], i) => {
+      if (!d.accounts.some((a) => a.id === id)) d.accounts.splice(i, 0, { id, name, opening: 0 });
+    });
     d.version = 1;
     return d;
   },

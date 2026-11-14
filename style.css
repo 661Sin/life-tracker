@@ -592,7 +592,7 @@ td.actions { width: 1%; white-space: nowrap; }
 .filters .field { width: 200px; }
 
 /* ---------- Accounts page ---------- */
-/* Hero card: overall balance, ⋯ menu, Cash / Bank tiles (tap = filter history) */
+/* Hero card: overall balance, ⋯ menu, Cash / Bank / Crypto tiles (tap = filter history) */
 .acct-hero-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .btn-icon { font-size: 18px; line-height: 1; padding: 6px 12px; }
 .menu-wrap { position: relative; }
@@ -621,7 +621,7 @@ td.actions { width: 1%; white-space: nowrap; }
 }
 .menu-item:hover { background: var(--glass-fill-hover); }
 .acct-hero .capital-value { margin-bottom: 16px; }
-.acct-tiles { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.acct-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(128px, 1fr)); gap: 10px; }
 .acct-tile {
   font: inherit;
   display: flex;
@@ -645,7 +645,7 @@ td.actions { width: 1%; white-space: nowrap; }
 /* Three actions in one row */
 .acct-actions { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 12px 0 4px; }
 
-/* Filter chips (All / Cash / Bank) */
+/* Filter chips (All / Cash / Bank / Crypto) */
 .chips { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 12px; }
 .chip {
   font: inherit;
@@ -698,7 +698,7 @@ td.actions { width: 1%; white-space: nowrap; }
 .hist-amt { font-size: 15px; font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .show-more { display: flex; justify-content: center; margin-bottom: 8px; }
 
-/* Forms: Cash / Bank pill picker, Move direction with swap, Delete on the left */
+/* Forms: Cash / Bank / Crypto pill picker, Move direction with swap, Delete on the left */
 .seg {
   display: inline-flex;
   gap: 2px;
@@ -714,7 +714,6 @@ td.actions { width: 1%; white-space: nowrap; }
 .seg input:checked + span { background: var(--accent-soft); color: var(--text); box-shadow: inset 0 0 0 1px var(--accent-edge); }
 .seg input:focus-visible + span { outline: 2px solid var(--glass-border-strong); }
 .move-pick { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 8px; }
-.move-acct { text-align: center; padding: 9px 12px; background: var(--bg); border: 1px solid var(--border); border-radius: 10px; font-size: 15px; }
 .form-delete { margin-right: auto; }
 [data-bills][hidden], [data-from-field][hidden] { display: none; }
 
