@@ -20,9 +20,9 @@ function looksEmptyData() {
     //   photos: [{ id, date, note, full, thumb (media ids), w, h, animated?, created }]
     //   progress: [{ date, value 0-100 }]    one per day }
     items: [],
-    // Need to buy: { id, name, price? (number), url? (link to buy), got? (date bought), created }
+    // Need to buy: { id, name, price? (number), url? (link to buy), note? (text), got? (date bought), created }
     buy: [],
-    // One free-text note for the whole Looksmax page
+    // Old page-wide note (replaced by a note on each thing to buy; only shown while it holds text)
     notes: "",
   };
 }

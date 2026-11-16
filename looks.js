@@ -210,7 +210,7 @@
   const buyRow = (b) => `
     <div class="lf-row lk-buy lk-wrap${b.got ? " done" : ""}" data-action="buy" data-id="${esc(b.id)}" role="button" tabindex="0">
       <span class="lf-lead"><button type="button" class="lf-tick${b.got ? " on" : ""}" data-action="buy-tick" data-id="${esc(b.id)}" aria-pressed="${!!b.got}" aria-label="Bought ${esc(b.name)}">${ICON.check}</button></span>
-      <span class="lf-main"><span class="lf-title">${esc(b.name)}</span>${b.got ? `<span class="lf-meta">Bought ${fmtShort(b.got)}</span>` : ""}</span>
+      <span class="lf-main"><span class="lf-title">${esc(b.name)}</span>${b.got || b.note ? `<span class="lf-meta">${[b.got ? `Bought ${fmtShort(b.got)}` : "", esc(b.note || "")].filter(Boolean).join(" · ")}</span>` : ""}</span>
       ${Number(b.price) > 0 ? `<span class="lf-trail">${money(b.price)}</span>` : ""}
     </div>`;
   function buyHtml(d) {
@@ -228,8 +228,9 @@
         <div class="card lf-list">${got.map(buyRow).join("")}</div></details>` : ""}`;
   }
 
-  // ---- Notes: one free-text block, tap to write ----
-  const notesHtml = (d) => `
+  // ---- Notes: the page-wide note (replaced 2026-11-16 by a note on each thing
+  // to buy). Only still shown while it holds text, so nothing written is lost. ----
+  const notesHtml = (d) => !d.notes ? "" : `
       <h3 class="group-title lf-group">Notes</h3>
       <div class="lk-how lk-page-notes" data-action="notes" role="button" tabindex="0">${d.notes ? linkify(d.notes) : `<span class="lk-placeholder">Write a note…</span>`}</div>`;
 
@@ -240,7 +241,8 @@
       ${field("What", textInput("name", b.name, 'required maxlength="80" autocomplete="off"'))}
       ${row2(field("Price", `<input name="price" type="number" inputmode="decimal" min="0" step="0.01" value="${Number(b.price) > 0 ? b.price : ""}" placeholder="Optional">`),
              field("Link to buy", textInput("url", b.url || "", 'maxlength="500" autocomplete="off" inputmode="url" placeholder="Optional"')))}
-      ${b.url ? `<div class="form-extra"><a class="btn btn-sm" href="${esc(b.url)}" target="_blank" rel="noopener noreferrer">Open link</a></div>` : ""}`,
+      ${b.url ? `<div class="form-extra"><a class="btn btn-sm" href="${esc(b.url)}" target="_blank" rel="noopener noreferrer">Open link</a></div>` : ""}
+      ${field("Note", `<textarea name="note" rows="4" maxlength="2000" placeholder="Optional">${esc(b.note || "")}</textarea>`)}`,
     (v) => {
       if (!v.name) return "Say what you need to buy.";
       const price = Number(v.price);
@@ -252,6 +254,7 @@
         x.name = v.name;
         if (price > 0) x.price = Math.round(price * 100) / 100; else delete x.price;
         if (url) x.url = url; else delete x.url;
+        if (v.note) x.note = v.note; else delete x.note;
       });
     }, {
       onDelete: () => LooksStore.commit((d) => { d.buy = d.buy.filter((x) => x.id !== id); }),
