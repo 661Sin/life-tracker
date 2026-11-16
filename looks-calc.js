@@ -100,6 +100,18 @@ const LooksCalc = {
   buyGot(data) { return (data.buy || []).filter((b) => b.got).sort((a, b) => (a.got < b.got ? 1 : a.got > b.got ? -1 : (b.created || 0) - (a.created || 0))); },
   buyTotal(data) { return Math.round(this.buyOpen(data).reduce((sum, b) => sum + (Number(b.price) > 0 ? Number(b.price) : 0), 0) * 100) / 100; },
 
+  // Things to buy that are linked to one item: still to buy first, then bought
+  buyFor(data, itemId) { return [...this.buyOpen(data), ...this.buyGot(data)].filter((b) => b.itemId === itemId); },
+
+  // ================= Notes =================
+  // Newest first. A note without a title is headed by its first line.
+  notes(data) { return (data.noteList || []).slice().sort((a, b) => (b.created || 0) - (a.created || 0)); },
+  noteTitle(n) { return (n.title || "").trim() || (n.text || "").trim().split("\n")[0] || "Note"; },
+  notePreview(n) {
+    const text = (n.text || "").trim();
+    return ((n.title || "").trim() ? text : text.split("\n").slice(1).join("\n")).replace(/\s+/g, " ").trim().slice(0, 240);
+  },
+
   // ================= Day score =================
   // What Life's day score needs: every item as a habit (LifeCalc.dayScore
   // counts them the same way it counts habits, as their own part).

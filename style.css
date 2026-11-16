@@ -1860,9 +1860,10 @@ main {
 .lk-add input:focus { outline: none; border-color: var(--accent); }
 
 /* Main page: Need to buy + Notes */
-.lk-buy-add { padding: 8px 22px 6px; }
+.lk-group .btn { margin-left: auto; }
 .lk-buy.done .lf-title { text-decoration: line-through; }
-.lk-page-notes { min-height: 96px; margin-bottom: 8px; }
+/* The "why" under a thing to buy / the start of a note: small grey text that wraps (up to 4 lines) */
+.lk-why { white-space: normal; overflow-wrap: anywhere; line-height: 1.4; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 4; line-clamp: 4; overflow: hidden; }
 
 /* Tracking */
 .lk-checkin { display: flex; flex-direction: column; gap: 12px; padding: 14px; border-radius: var(--radius-sm); background: var(--card); border: 1px solid var(--border); }
@@ -1889,9 +1890,7 @@ main {
   .lk-shot-cap b { font-size: 12px; }
   .lk-shot-cap span { font-size: 11px; }
   .lk-cmp-side { gap: 6px; }
-  .lk-add .btn { min-height: 44px; padding: 5px 16px; }
-  .lk-buy-add { padding: 8px 16px 6px; }
-}
+  .lk-add .btn { min-height: 44px; padding: 5px 16px; }}
 
 /* =====================================================================
    Fallbacks and accessibility

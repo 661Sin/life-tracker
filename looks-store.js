@@ -20,9 +20,13 @@ function looksEmptyData() {
     //   photos: [{ id, date, note, full, thumb (media ids), w, h, animated?, created }]
     //   progress: [{ date, value 0-100 }]    one per day }
     items: [],
-    // Need to buy: { id, name, price? (number), url? (link to buy), note? (text), got? (date bought), created }
+    // Need to buy: { id, name, price? (number), url? (link to buy), note? (why I need it),
+    //   itemId? (the Looksmax item it is for), got? (date bought), created }
     buy: [],
-    // Old page-wide note (replaced by a note on each thing to buy; only shown while it holds text)
+    // Notes: { id, title, text, created, updated? }
+    noteList: [],
+    // (Left empty. For one day this was a single page-wide note; kept as a string
+    // so a phone still running that version can read the data. Text found here is moved into noteList.)
     notes: "",
   };
 }
@@ -42,7 +46,11 @@ const LooksStore = {
     if (!d || typeof d !== "object") return base;
     if (!Array.isArray(d.items)) d.items = [];
     if (!Array.isArray(d.buy)) d.buy = [];
-    if (typeof d.notes !== "string") d.notes = "";
+    d.buy = d.buy.filter((b) => b && typeof b === "object" && b.id);
+    if (!Array.isArray(d.noteList)) d.noteList = [];
+    d.noteList = d.noteList.filter((n) => n && typeof n === "object" && n.id);
+    if (typeof d.notes === "string" && d.notes.trim()) d.noteList.push({ id: this.uid(), title: "", text: d.notes.trim(), created: Date.now() });
+    d.notes = "";
     for (const it of d.items) {
       for (const k of ["done", "actions", "log", "photos", "progress"]) if (!Array.isArray(it[k])) it[k] = [];
       if (!it.didActions || typeof it.didActions !== "object" || Array.isArray(it.didActions)) it.didActions = {};

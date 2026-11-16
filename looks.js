@@ -206,43 +206,57 @@
     return html + buyHtml(d) + notesHtml(d);
   }
 
-  // ---- Need to buy: tick = bought, tap a row = its sheet (price, link, Delete) ----
-  const buyRow = (b) => `
-    <div class="lf-row lk-buy lk-wrap${b.got ? " done" : ""}" data-action="buy" data-id="${esc(b.id)}" role="button" tabindex="0">
-      <span class="lf-lead"><button type="button" class="lf-tick${b.got ? " on" : ""}" data-action="buy-tick" data-id="${esc(b.id)}" aria-pressed="${!!b.got}" aria-label="Bought ${esc(b.name)}">${ICON.check}</button></span>
-      <span class="lf-main"><span class="lf-title">${esc(b.name)}</span>${b.got || b.note ? `<span class="lf-meta">${[b.got ? `Bought ${fmtShort(b.got)}` : "", esc(b.note || "")].filter(Boolean).join(" · ")}</span>` : ""}</span>
+  // ---- Need to buy: tick = bought, tap a row = its sheet. The same row is
+  // used on the page (data-action) and inside an item's sheet (data-buy). ----
+  const buyRow = (b, inSheet) => `
+    <div class="lf-row lk-buy lk-wrap${b.got ? " done" : ""}" ${inSheet ? `data-buy="${esc(b.id)}"` : `data-action="buy" data-id="${esc(b.id)}"`} role="button" tabindex="0">
+      <span class="lf-lead"><button type="button" class="lf-tick${b.got ? " on" : ""}" ${inSheet ? `data-buy-tick="${esc(b.id)}"` : `data-action="buy-tick" data-id="${esc(b.id)}"`} aria-pressed="${!!b.got}" aria-label="Bought ${esc(b.name)}">${ICON.check}</button></span>
+      <span class="lf-main"><span class="lf-title">${esc(b.name)}</span>${b.note ? `<span class="lf-meta lk-why">${esc(b.note)}</span>` : ""}${b.got ? `<span class="lf-meta">Bought ${fmtShort(b.got)}</span>` : ""}</span>
       ${Number(b.price) > 0 ? `<span class="lf-trail">${money(b.price)}</span>` : ""}
     </div>`;
   function buyHtml(d) {
     const open = C.buyOpen(d), got = C.buyGot(d), total = C.buyTotal(d);
     return `
-      <h3 class="group-title lf-group">Need to buy${total > 0 ? `<span class="badge">${money(total)}</span>` : ""}</h3>
-      <div class="card lf-list lk-buy-list">
-        ${open.map(buyRow).join("")}
-        <form class="lk-add lk-buy-add" data-add-buy novalidate>
-          <input name="name" type="text" maxlength="80" autocomplete="off" placeholder="Add something to buy" aria-label="Add something to buy">
-          <button type="submit" class="btn btn-sm">Add</button>
-        </form>
-      </div>
+      <h3 class="group-title lf-group lk-group">Need to buy${total > 0 ? `<span class="badge">${money(total)}</span>` : ""}${btn("+ Item", "buy-add", "", "btn-sm")}</h3>
+      ${open.length ? `<div class="card lf-list">${open.map((b) => buyRow(b)).join("")}</div>` : ""}
       ${got.length ? `<details class="history lf-collapse" data-bought${ui.boughtOpen ? " open" : ""}><summary>Bought (${got.length})</summary>
-        <div class="card lf-list">${got.map(buyRow).join("")}</div></details>` : ""}`;
+        <div class="card lf-list">${got.map((b) => buyRow(b)).join("")}</div></details>` : ""}`;
   }
 
-  // ---- Notes: the page-wide note (replaced 2026-11-16 by a note on each thing
-  // to buy). Only still shown while it holds text, so nothing written is lost. ----
-  const notesHtml = (d) => !d.notes ? "" : `
-      <h3 class="group-title lf-group">Notes</h3>
-      <div class="lk-how lk-page-notes" data-action="notes" role="button" tabindex="0">${d.notes ? linkify(d.notes) : `<span class="lk-placeholder">Write a note…</span>`}</div>`;
+  // ---- Notes: title + text, newest first, tap = its sheet ----
+  function notesHtml(d) {
+    const notes = C.notes(d);
+    return `
+      <h3 class="group-title lf-group lk-group">Notes${btn("+ Note", "note-add", "", "btn-sm")}</h3>
+      ${notes.length ? `<div class="card lf-list">${notes.map((n) => {
+        const more = C.notePreview(n);
+        return `<div class="lf-row lk-note lk-wrap" data-action="note" data-id="${esc(n.id)}" role="button" tabindex="0">
+          <span class="lf-main"><span class="lf-title">${esc(C.noteTitle(n))}</span>${more ? `<span class="lf-meta lk-why">${esc(more)}</span>` : ""}</span>
+        </div>`;
+      }).join("")}</div>` : ""}`;
+  }
 
-  function buyForm(id) {
-    const b = D().buy.find((x) => x.id === id);
+  // Tick / untick "bought" (bought today)
+  const tickBuy = (id) => LooksStore.commit((d) => {
+    const b = d.buy.find((x) => x.id === id);
     if (!b) return;
+    if (b.got) delete b.got; else b.got = L.today();
+  });
+
+  // New thing to buy (id empty) or an existing one. opts.itemId pre-picks the
+  // Looksmax item it is for; opts.after goes back to that item's sheet.
+  function buyForm(id, opts = {}) {
+    const b = id ? D().buy.find((x) => x.id === id) : { name: "", itemId: opts.itemId || "" };
+    if (!b) return opts.after ? opts.after() : undefined;
+    const items = D().items;
     openForm("Need to buy", `
       ${field("What", textInput("name", b.name, 'required maxlength="80" autocomplete="off"'))}
       ${row2(field("Price", `<input name="price" type="number" inputmode="decimal" min="0" step="0.01" value="${Number(b.price) > 0 ? b.price : ""}" placeholder="Optional">`),
              field("Link to buy", textInput("url", b.url || "", 'maxlength="500" autocomplete="off" inputmode="url" placeholder="Optional"')))}
       ${b.url ? `<div class="form-extra"><a class="btn btn-sm" href="${esc(b.url)}" target="_blank" rel="noopener noreferrer">Open link</a></div>` : ""}
-      ${field("Note", `<textarea name="note" rows="4" maxlength="2000" placeholder="Optional">${esc(b.note || "")}</textarea>`)}`,
+      ${field("Why I need it", `<textarea name="note" rows="3" maxlength="2000">${esc(b.note || "")}</textarea>`)}
+      ${items.length ? field("For", `<select name="itemId"><option value="">Nothing in particular</option>${items.map((it) =>
+        `<option value="${esc(it.id)}"${it.id === b.itemId ? " selected" : ""}>${esc((it.emoji ? it.emoji + " " : "") + it.name)}</option>`).join("")}</select>`) : ""}`,
     (v) => {
       if (!v.name) return "Say what you need to buy.";
       const price = Number(v.price);
@@ -250,21 +264,40 @@
       let url = v.url;
       if (url && !/^https?:\/\//i.test(url)) url = "https://" + url;
       return LooksStore.commit((d) => {
-        const x = d.buy.find((y) => y.id === id);
+        let x = id ? d.buy.find((y) => y.id === id) : null;
+        if (!x) { x = { id: LooksStore.uid(), created: Date.now() }; d.buy.push(x); }
         x.name = v.name;
         if (price > 0) x.price = Math.round(price * 100) / 100; else delete x.price;
         if (url) x.url = url; else delete x.url;
         if (v.note) x.note = v.note; else delete x.note;
+        if (v.itemId && d.items.some((it) => it.id === v.itemId)) x.itemId = v.itemId; else delete x.itemId;
       });
     }, {
-      onDelete: () => LooksStore.commit((d) => { d.buy = d.buy.filter((x) => x.id !== id); }),
+      submitLabel: id ? "Save" : "Add",
+      after: opts.after,
+      onDelete: !id ? null : () => LooksStore.commit((d) => { d.buy = d.buy.filter((x) => x.id !== id); }),
       confirmText: `Remove "${b.name}" from the list?`,
     });
   }
 
-  function notesForm() {
-    openForm("Notes", field("Notes", `<textarea name="notes" rows="12" maxlength="20000">${esc(D().notes)}</textarea>`),
-      (v) => LooksStore.commit((d) => { d.notes = v.notes; }));
+  // A note: new (id empty) or an existing one
+  function noteForm(id) {
+    const n = id ? D().noteList.find((x) => x.id === id) : { title: "", text: "" };
+    if (!n) return;
+    openForm(id ? "Note" : "New note", `
+      ${field("Title", textInput("title", n.title || "", 'maxlength="80" autocomplete="off"'))}
+      ${field("Note", `<textarea name="text" rows="9" maxlength="20000">${esc(n.text || "")}</textarea>`)}`,
+    (v) => {
+      if (!v.title && !v.text) return "Write something first.";
+      return LooksStore.commit((d) => {
+        if (id) Object.assign(d.noteList.find((x) => x.id === id), { title: v.title, text: v.text, updated: Date.now() });
+        else d.noteList.push({ id: LooksStore.uid(), title: v.title, text: v.text, created: Date.now() });
+      });
+    }, {
+      submitLabel: id ? "Save" : "Add",
+      onDelete: !id ? null : () => LooksStore.commit((d) => { d.noteList = d.noteList.filter((x) => x.id !== id); }),
+      confirmText: "Delete this note? This can't be undone.",
+    });
   }
 
   // ================= Add / edit =================
@@ -375,7 +408,10 @@
 
   function deleteItem(id) {
     const it = LooksStore.get(id);
-    const error = LooksStore.commit((d) => { d.items = d.items.filter((x) => x.id !== id); });
+    const error = LooksStore.commit((d) => {
+      d.items = d.items.filter((x) => x.id !== id);
+      for (const b of d.buy) if (b.itemId === id) delete b.itemId;   // things to buy for it stay on the list
+    });
     if (!error && it) Media.del(C.mediaOf(it)).catch(() => {});
     return error;
   }
@@ -467,6 +503,7 @@
     // ---- Notes: how to do it, what I'm doing, dated updates ----
     notes(it) {
       const log = C.log(it);
+      const buy = C.buyFor(D(), it.id);
       return `
         <h3 class="lk-h">How to do it</h3>
         <div class="lk-how" data-lk="how" role="button" tabindex="0">${it.how ? linkify(it.how) : `<span class="lk-placeholder">Info, tips, links…</span>`}</div>
@@ -478,6 +515,9 @@
           <input name="text" type="text" maxlength="140" autocomplete="off" placeholder="Add an action" aria-label="Add an action">
           <button type="submit" class="btn btn-sm">Add</button>
         </form>
+
+        <h3 class="lk-h">Need to buy<button type="button" class="btn btn-sm" data-lk="add-buy">+ Item</button></h3>
+        ${buy.length ? `<div class="lf-list lf-in-sheet">${buy.map((b) => buyRow(b, true)).join("")}</div>` : ""}
 
         <h3 class="lk-h">Log<button type="button" class="btn btn-sm" data-lk="add-log">+ Update</button></h3>
         ${log.length ? `<div class="lf-list lf-in-sheet">${log.map((g) => `
@@ -567,6 +607,10 @@
       if (hm) { sheet.day = hm.dataset.hm; check(id, sheet.day); drawPart(); const again = body.querySelector(`[data-hm="${sheet.day}"]`); if (again) again.focus(); return; }
       const did = t.closest("[data-did]");
       if (did) { change((it) => C.toggleAction(it, sheet.day, did.dataset.did)); return drawPart(); }
+      const bt = t.closest("[data-buy-tick]");           // a thing to buy for this item: tick = bought
+      if (bt) { tickBuy(bt.dataset.buyTick); return drawPart(); }
+      const by = t.closest("[data-buy]");
+      if (by) return buyForm(by.dataset.buy, { after: () => openItem(id) });
       const act = t.closest("[data-act]");
       if (act) return actionForm(id, act.dataset.act);
       const lg = t.closest("[data-log]");
@@ -579,6 +623,7 @@
       if (what === "compare") return compareView(id);
       if (what === "how") return howForm(id);
       if (what === "add-log") return logForm(id);
+      if (what === "add-buy") return buyForm(null, { itemId: id, after: () => openItem(id) });
       if (what === "finish") {
         if (!confirm("Mark as finished? It moves to Done (you can reopen it).")) return;
         change((it) => { it.finished = L.today(); });
@@ -845,12 +890,10 @@
     open: (id) => openItem(id, { fresh: true }),
     check: (id) => check(id),
     buy: (id) => buyForm(id),
-    "buy-tick": (id) => LooksStore.commit((d) => {
-      const b = d.buy.find((x) => x.id === id);
-      if (!b) return;
-      if (b.got) delete b.got; else b.got = L.today();
-    }),
-    notes: () => notesForm(),
+    "buy-add": () => buyForm(),
+    "buy-tick": (id) => tickBuy(id),
+    note: (id) => noteForm(id),
+    "note-add": () => noteForm(),
     sections: () => window.openSections && window.openSections(),
     export: () => Backup.download(),
     import: () => Backup.chooseAndImport(),
@@ -866,19 +909,8 @@
     const b = e.target.closest("[data-action]");
     if (!b || b.dataset.action !== "menu") closeMenus();
     if (!b || !root.contains(b)) return;
-    if (e.target.closest("a")) return;                  // a link inside the notes
     const fn = ACTIONS[b.dataset.action];
     if (fn) { e.preventDefault(); fn(b.dataset.id, b); }
-  });
-  // The "Add something to buy" box at the bottom of the list
-  root.addEventListener("submit", (e) => {
-    if (!e.target.matches("[data-add-buy]")) return;
-    e.preventDefault();
-    const name = e.target.elements.name.value.trim();
-    if (!name) return;
-    LooksStore.commit((d) => { d.buy.push({ id: LooksStore.uid(), name, created: Date.now() }); });
-    const box = root.querySelector("[data-add-buy] input");   // (the page was redrawn: keep typing)
-    if (box) box.focus();
   });
   root.addEventListener("keydown", (e) => {
     if ((e.key === "Enter" || e.key === " ") && e.target.matches("[role=button][data-action]")) { e.preventDefault(); e.target.click(); }
