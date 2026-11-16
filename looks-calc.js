@@ -93,6 +93,13 @@ const LooksCalc = {
   // Log entries, newest first
   log(it) { return (it.log || []).slice().sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : (b.created || 0) - (a.created || 0))); },
 
+  // ================= Need to buy =================
+  // Still to buy (in the order added), bought (latest first), and what the
+  // things still to buy add up to (only the ones with a price).
+  buyOpen(data) { return (data.buy || []).filter((b) => !b.got); },
+  buyGot(data) { return (data.buy || []).filter((b) => b.got).sort((a, b) => (a.got < b.got ? 1 : a.got > b.got ? -1 : (b.created || 0) - (a.created || 0))); },
+  buyTotal(data) { return Math.round(this.buyOpen(data).reduce((sum, b) => sum + (Number(b.price) > 0 ? Number(b.price) : 0), 0) * 100) / 100; },
+
   // ================= Day score =================
   // What Life's day score needs: every item as a habit (LifeCalc.dayScore
   // counts them the same way it counts habits, as their own part).

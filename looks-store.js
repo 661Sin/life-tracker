@@ -20,6 +20,10 @@ function looksEmptyData() {
     //   photos: [{ id, date, note, full, thumb (media ids), w, h, animated?, created }]
     //   progress: [{ date, value 0-100 }]    one per day }
     items: [],
+    // Need to buy: { id, name, price? (number), url? (link to buy), got? (date bought), created }
+    buy: [],
+    // One free-text note for the whole Looksmax page
+    notes: "",
   };
 }
 
@@ -37,6 +41,8 @@ const LooksStore = {
     const base = looksEmptyData();
     if (!d || typeof d !== "object") return base;
     if (!Array.isArray(d.items)) d.items = [];
+    if (!Array.isArray(d.buy)) d.buy = [];
+    if (typeof d.notes !== "string") d.notes = "";
     for (const it of d.items) {
       for (const k of ["done", "actions", "log", "photos", "progress"]) if (!Array.isArray(it[k])) it[k] = [];
       if (!it.didActions || typeof it.didActions !== "object" || Array.isArray(it.didActions)) it.didActions = {};

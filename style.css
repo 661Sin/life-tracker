@@ -1859,6 +1859,11 @@ main {
 }
 .lk-add input:focus { outline: none; border-color: var(--accent); }
 
+/* Main page: Need to buy + Notes */
+.lk-buy-add { padding: 8px 22px 6px; }
+.lk-buy.done .lf-title { text-decoration: line-through; }
+.lk-page-notes { min-height: 96px; margin-bottom: 8px; }
+
 /* Tracking */
 .lk-checkin { display: flex; flex-direction: column; gap: 12px; padding: 14px; border-radius: var(--radius-sm); background: var(--card); border: 1px solid var(--border); }
 .lk-check-big { min-height: 48px; font-size: 15px; }
@@ -1885,6 +1890,7 @@ main {
   .lk-shot-cap span { font-size: 11px; }
   .lk-cmp-side { gap: 6px; }
   .lk-add .btn { min-height: 44px; padding: 5px 16px; }
+  .lk-buy-add { padding: 8px 16px 6px; }
 }
 
 /* =====================================================================

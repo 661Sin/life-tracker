@@ -30,6 +30,8 @@
     return n === 0 ? "Today" : n === -1 ? "Yesterday" : n === 1 ? "Tomorrow" : fmtDay(s);
   };
   const streakText = (it, n) => plural(n, C.isWeekly(it) ? "week" : "day");
+  const NZD = new Intl.NumberFormat("en-NZ", { style: "currency", currency: "NZD" });
+  const money = (n) => NZD.format(Math.round((Number(n) || 0) * 100) / 100);
 
   const btn = (label, action, id = "", cls = "") =>
     `<button type="button" class="btn ${cls}" data-action="${action}"${id !== "" ? ` data-id="${esc(id)}"` : ""}>${label}</button>`;
@@ -144,7 +146,7 @@
   }
 
   // ================= Main page =================
-  const ui = { doneOpen: false };
+  const ui = { doneOpen: false, boughtOpen: false };
 
   const coverHtml = (it) => {
     const p = C.latestPhoto(it);
@@ -201,7 +203,65 @@
       html += `<details class="history lf-collapse" data-done${ui.doneOpen ? " open" : ""}><summary>Done (${finished.length})</summary>
         <div class="lk-grid">${finished.map((it) => cardHtml(it, today)).join("")}</div></details>`;
     }
-    return html;
+    return html + buyHtml(d) + notesHtml(d);
+  }
+
+  // ---- Need to buy: tick = bought, tap a row = its sheet (price, link, Delete) ----
+  const buyRow = (b) => `
+    <div class="lf-row lk-buy lk-wrap${b.got ? " done" : ""}" data-action="buy" data-id="${esc(b.id)}" role="button" tabindex="0">
+      <span class="lf-lead"><button type="button" class="lf-tick${b.got ? " on" : ""}" data-action="buy-tick" data-id="${esc(b.id)}" aria-pressed="${!!b.got}" aria-label="Bought ${esc(b.name)}">${ICON.check}</button></span>
+      <span class="lf-main"><span class="lf-title">${esc(b.name)}</span>${b.got ? `<span class="lf-meta">Bought ${fmtShort(b.got)}</span>` : ""}</span>
+      ${Number(b.price) > 0 ? `<span class="lf-trail">${money(b.price)}</span>` : ""}
+    </div>`;
+  function buyHtml(d) {
+    const open = C.buyOpen(d), got = C.buyGot(d), total = C.buyTotal(d);
+    return `
+      <h3 class="group-title lf-group">Need to buy${total > 0 ? `<span class="badge">${money(total)}</span>` : ""}</h3>
+      <div class="card lf-list lk-buy-list">
+        ${open.map(buyRow).join("")}
+        <form class="lk-add lk-buy-add" data-add-buy novalidate>
+          <input name="name" type="text" maxlength="80" autocomplete="off" placeholder="Add something to buy" aria-label="Add something to buy">
+          <button type="submit" class="btn btn-sm">Add</button>
+        </form>
+      </div>
+      ${got.length ? `<details class="history lf-collapse" data-bought${ui.boughtOpen ? " open" : ""}><summary>Bought (${got.length})</summary>
+        <div class="card lf-list">${got.map(buyRow).join("")}</div></details>` : ""}`;
+  }
+
+  // ---- Notes: one free-text block, tap to write ----
+  const notesHtml = (d) => `
+      <h3 class="group-title lf-group">Notes</h3>
+      <div class="lk-how lk-page-notes" data-action="notes" role="button" tabindex="0">${d.notes ? linkify(d.notes) : `<span class="lk-placeholder">Write a note…</span>`}</div>`;
+
+  function buyForm(id) {
+    const b = D().buy.find((x) => x.id === id);
+    if (!b) return;
+    openForm("Need to buy", `
+      ${field("What", textInput("name", b.name, 'required maxlength="80" autocomplete="off"'))}
+      ${row2(field("Price", `<input name="price" type="number" inputmode="decimal" min="0" step="0.01" value="${Number(b.price) > 0 ? b.price : ""}" placeholder="Optional">`),
+             field("Link to buy", textInput("url", b.url || "", 'maxlength="500" autocomplete="off" inputmode="url" placeholder="Optional"')))}
+      ${b.url ? `<div class="form-extra"><a class="btn btn-sm" href="${esc(b.url)}" target="_blank" rel="noopener noreferrer">Open link</a></div>` : ""}`,
+    (v) => {
+      if (!v.name) return "Say what you need to buy.";
+      const price = Number(v.price);
+      if (v.price && !(price >= 0)) return "The price should be a number.";
+      let url = v.url;
+      if (url && !/^https?:\/\//i.test(url)) url = "https://" + url;
+      return LooksStore.commit((d) => {
+        const x = d.buy.find((y) => y.id === id);
+        x.name = v.name;
+        if (price > 0) x.price = Math.round(price * 100) / 100; else delete x.price;
+        if (url) x.url = url; else delete x.url;
+      });
+    }, {
+      onDelete: () => LooksStore.commit((d) => { d.buy = d.buy.filter((x) => x.id !== id); }),
+      confirmText: `Remove "${b.name}" from the list?`,
+    });
+  }
+
+  function notesForm() {
+    openForm("Notes", field("Notes", `<textarea name="notes" rows="12" maxlength="20000">${esc(D().notes)}</textarea>`),
+      (v) => LooksStore.commit((d) => { d.notes = v.notes; }));
   }
 
   // ================= Add / edit =================
@@ -781,6 +841,13 @@
     add: () => addForm(),
     open: (id) => openItem(id, { fresh: true }),
     check: (id) => check(id),
+    buy: (id) => buyForm(id),
+    "buy-tick": (id) => LooksStore.commit((d) => {
+      const b = d.buy.find((x) => x.id === id);
+      if (!b) return;
+      if (b.got) delete b.got; else b.got = L.today();
+    }),
+    notes: () => notesForm(),
     sections: () => window.openSections && window.openSections(),
     export: () => Backup.download(),
     import: () => Backup.chooseAndImport(),
@@ -796,15 +863,30 @@
     const b = e.target.closest("[data-action]");
     if (!b || b.dataset.action !== "menu") closeMenus();
     if (!b || !root.contains(b)) return;
+    if (e.target.closest("a")) return;                  // a link inside the notes
     const fn = ACTIONS[b.dataset.action];
     if (fn) { e.preventDefault(); fn(b.dataset.id, b); }
+  });
+  // The "Add something to buy" box at the bottom of the list
+  root.addEventListener("submit", (e) => {
+    if (!e.target.matches("[data-add-buy]")) return;
+    e.preventDefault();
+    const name = e.target.elements.name.value.trim();
+    if (!name) return;
+    LooksStore.commit((d) => { d.buy.push({ id: LooksStore.uid(), name, created: Date.now() }); });
+    const box = root.querySelector("[data-add-buy] input");   // (the page was redrawn: keep typing)
+    if (box) box.focus();
   });
   root.addEventListener("keydown", (e) => {
     if ((e.key === "Enter" || e.key === " ") && e.target.matches("[role=button][data-action]")) { e.preventDefault(); e.target.click(); }
     if (e.key === "Escape") closeMenus();
   });
   document.addEventListener("click", (e) => { if (!root.contains(e.target)) closeMenus(); });
-  root.addEventListener("toggle", (e) => { if (e.target.matches && e.target.matches("[data-done]")) ui.doneOpen = e.target.open; }, true);
+  root.addEventListener("toggle", (e) => {
+    if (!e.target.matches) return;
+    if (e.target.matches("[data-done]")) ui.doneOpen = e.target.open;
+    if (e.target.matches("[data-bought]")) ui.boughtOpen = e.target.open;
+  }, true);
 
   // ================= Drawing =================
   let onLooks = false, stale = true;
