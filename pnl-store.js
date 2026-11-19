@@ -29,6 +29,12 @@ function pnlEmptyData() {
     // transfer: { id, type:"transfer", fromId, toId, amount, date, note }  (Cash → Bank = a cash deposit)
     // adjustment: { id, type:"adjust", accountId, amount (+/-), date, note, from? (who sent a bank transfer), cashCount? }
     transfers: [],
+    // "I owe" (money I owe other people, added 2026-11-20):
+    // { id, who, amount, note (what it's for), date, dueDate?, accountId? (money came into; "" = no money moved),
+    //   payments: [{ id, amount, date, accountId (paid back from) }] }
+    // Borrowed money adds to `accountId` on `date`; each pay-back takes money out of its account.
+    // Neither counts as income or an expense (profit is unchanged); what's left counts against capital.
+    debts: [],
     categories: PNL_DEFAULT_CATEGORIES.slice(),
   };
 }

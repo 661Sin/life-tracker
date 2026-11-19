@@ -43,7 +43,8 @@
     return d.orders.some((x) => x.accountId === id) ||
       d.sales.some((x) => x.accountId === id || (x.payments || []).some((p) => p.accountId === id)) ||
       d.expenses.some((x) => x.accountId === id) ||
-      d.transfers.some((x) => x.accountId === id || x.fromId === id || x.toId === id);
+      d.transfers.some((x) => x.accountId === id || x.fromId === id || x.toId === id) ||
+      (d.debts || []).some((x) => x.accountId === id || (x.payments || []).some((p) => p.accountId === id));
   };
   function upsertIn(list, item) {
     const i = list.findIndex((x) => x.id === item.id);
@@ -72,6 +73,15 @@
   const muted = (text) => (text ? `<div class="muted">${text}</div>` : "");
   const badge = (text, cls = "") => `<span class="badge ${cls}">${text}</span>`;
   const empty = (text) => `<div class="card empty">${text}</div>`;
+
+  // ---- History (hidden by default on every page) ----
+  // Past entries sit under a small glass "Show history" button at the bottom of
+  // the page. It closes again whenever a PnL page is opened (see hashchange).
+  // Only the LIST is hidden: totals, balances and charts always use all the data.
+  let histOpen = false;
+  const historyBlock = (html) => !html ? "" :
+    (histOpen ? `<div class="pnl-history">${html}</div>` : "") +
+    `<div class="show-history"><button type="button" class="btn btn-sm history-toggle" data-action="toggle-history" aria-expanded="${histOpen}">${histOpen ? "Hide history" : "Show history"}</button></div>`;
 
   // cols: [{ label, num? }], rows: [{ cells: [html...], cls?, action?, id? }]
   // A row with an action is tapped to open it (no Edit / Delete buttons on rows).
@@ -175,6 +185,8 @@
     const profitable = sold.slice().sort((a, b) => b.net - a.net).slice(0, 5);
     const overdue = data.orders.filter((o) => !o.receivedDate && o.expectedDate && o.expectedDate < today).length;
     const slow = Calc.slowestSellers(Calc.sellTimes(data, today), 5).map((x) => ({ ...x, name: productName(x.productId) }));
+    const owedList = Calc.owedList(data, today);
+    const debtList = Calc.debtList(data, today);
 
     const rankList = (items, valueOf, labelOf, emptyText) => {
       if (!items.length) return `<p class="muted">${emptyText}</p>`;
@@ -201,9 +213,12 @@
           <div><span class="muted">Crypto</span><b>${money(snap.balances[CRYPTO_ID] || 0)}</b></div>
           <div><span class="muted">Stock in hand</span><b>${money(snap.stockValue)}</b></div>
           <div><span class="muted">Owed to me</span><b>${money(snap.owedTotal)}</b></div>
+          <div><span class="muted">I owe</span><b class="${snap.iOweTotal > 0 ? "neg" : ""}">${snap.iOweTotal > 0 ? "−" : ""}${money(snap.iOweTotal)}</b></div>
         </div>
       </div>
-      ${owedSection(Calc.owedList(data, today), snap.owedTotal)}
+      ${debtTiles(owedList, debtList, snap)}
+      ${owedSection(owedList)}
+      ${debtSection(debtList)}
       ${profitChart(Calc.monthlyStats(data, snap, month, 12))}
       <h3 class="group-title">${fmtMonth(month)}</h3>
       <div class="stats">
@@ -221,11 +236,25 @@
           (x) => [x.avgDays === null ? "no sales" : `${Math.round(x.avgDays)}d avg`, x.oldestDays === null ? "" : `${x.oldestDays}d oldest`].filter(Boolean).join(" · "),
           "No stock or sales yet.")}
           </div>
-      </div>`;
+      </div>` + historyBlock(dashboardHistory(data));
   };
 
-  // ---------- Owed to me (Dashboard) ----------
-  function owedSection(list, total) {
+  // ---------- Owed to me / I owe (Dashboard) ----------
+  // Two tiles side by side with the totals; the lists of who owes what sit underneath.
+  function debtTiles(owedList, debtList, snap) {
+    const sub = (list) => !list.length ? "Nobody" :
+      `${list.length} ${list.length === 1 ? "person" : "people"}` + (list.some((x) => x.overdue) ? ` · <span class="neg">${list.filter((x) => x.overdue).length} overdue</span>` : "");
+    return `<div class="stats debt-tiles">
+        ${stat("Owed to me", money(snap.owedTotal), sub(owedList))}
+        <div class="card stat">
+          <div class="stat-head"><span class="stat-label">I owe</span>${btn("+ Add", "add-debt", "", "btn-sm")}</div>
+          <div class="stat-value ${snap.iOweTotal > 0 ? "neg" : ""}">${money(snap.iOweTotal)}</div>
+          <div class="stat-sub">${sub(debtList)}</div>
+        </div>
+      </div>`;
+  }
+
+  function owedSection(list) {
     if (!list.length) return "";
     const overdue = list.filter((x) => x.overdue).length;
     const rows = list.map(({ sale: s, owed, overdue: late, days }) => ({
@@ -237,8 +266,46 @@
         `<b>${money(owed)}</b>${Calc.salePaid(s) > 0 ? muted(`of ${money(Calc.saleRevenue(s))}`) : ""}`,
       ],
     }));
-    return `<h3 class="group-title">Owed to me: ${money(total)}${overdue ? ` <span class="badge warn">${overdue} overdue</span>` : ""}</h3>` +
+    return `<h3 class="group-title">Who owes me${overdue ? ` <span class="badge warn">${overdue} overdue</span>` : ""}</h3>` +
       table([{ label: "Buyer" }, { label: "Sold" }, { label: "Due" }, { label: "Owed", num: true }], rows, "");
+  }
+
+  // Who I owe, oldest first, overdue highlighted. Tap a row = the debt's sheet (Pay back…)
+  const dueCell = (dueDate, late) => !dueDate ? `<span class="muted">No due date</span>`
+    : late ? badge(`Overdue since ${fmtDate(dueDate)}`, "warn") : fmtDate(dueDate);
+  function debtSection(list) {
+    if (!list.length) return "";
+    const overdue = list.filter((x) => x.overdue).length;
+    const rows = list.map(({ debt: x, left, overdue: late, days }) => ({
+      cls: late ? "overdue" : "", action: "edit-debt", id: x.id,
+      cells: [
+        `<b>${esc(x.who)}</b>${muted(esc(x.note))}`,
+        fmtDate(x.date) + muted(`${plural(days, "day")} ago`),
+        dueCell(x.dueDate, late),
+        `<b>${money(left)}</b>${Calc.debtPaid(x) > 0 ? muted(`of ${money(x.amount)}`) : ""}`,
+      ],
+    }));
+    return `<h3 class="group-title">Who I owe${overdue ? ` <span class="badge warn">${overdue} overdue</span>` : ""}</h3>` +
+      table([{ label: "Who" }, { label: "Since" }, { label: "Due" }, { label: "I owe", num: true }], rows, "");
+  }
+
+  // Dashboard history: paid-off "Owed to me" sales and paid-off debts
+  function dashboardHistory(data) {
+    const sales = Calc.paidOffSales(data);
+    const debts = Calc.paidOffDebts(data);
+    let html = "";
+    if (sales.length) html += `<h3 class="group-title">Paid to me</h3>` + table([{ label: "Buyer" }, { label: "Sold" }, { label: "Paid off" }, { label: "Amount", num: true }],
+      sales.map((s) => ({
+        action: "mark-paid", id: s.id,
+        cells: [`<b>${esc(s.buyer)}</b>${muted(`${esc(productName(s.productId))} × ${s.qty}`)}`, fmtDate(s.date),
+          fmtDate((s.payments || []).reduce((m, p) => (p.date > m ? p.date : m), s.date)), money(Calc.saleRevenue(s))],
+      })), "");
+    if (debts.length) html += `<h3 class="group-title">Paid back</h3>` + table([{ label: "Who" }, { label: "Since" }, { label: "Paid off" }, { label: "Amount", num: true }],
+      debts.map((x) => ({
+        action: "edit-debt", id: x.id,
+        cells: [`<b>${esc(x.who)}</b>${muted(esc(x.note))}`, fmtDate(x.date), fmtDate(Calc.debtLastPaid(x)), money(x.amount)],
+      })), "");
+    return html;
   }
 
   // ---------- Monthly net profit chart (Dashboard) ----------
@@ -406,9 +473,9 @@
       </div>` +
       table([{ label: "Product" }, { label: "Qty", num: true }, { label: "Total cost", num: true }, { label: "Ordered" }, { label: "Expected" }, { label: "Arrival" }],
         rows, "Nothing on the way.") +
-      (received.length ? `<details class="history"><summary>Received orders (${received.length})</summary>${table(
+      historyBlock(received.length ? `<h3 class="group-title">Received orders</h3>` + table(
         [{ label: "Product" }, { label: "Qty received", num: true }, { label: "Total cost", num: true }, { label: "Ordered" }, { label: "Received" }],
-        receivedRows, "")}</details>` : "");
+        receivedRows, "") : "");
   };
 
   // ---------- In hand ----------
@@ -451,9 +518,9 @@
       table([{ label: "Product" }, { label: "Qty on hand", num: true }, { label: "Avg landed cost/unit", num: true }, { label: "Stock value", num: true },
         { label: "Avg days to sell", num: true }, { label: "Oldest unsold", num: true }],
         rows, "No stock in hand.") +
-      (adjustments.length ? `<details class="history"><summary>Stock adjustments (${adjustments.length})</summary>${table(
+      historyBlock(adjustments.length ? `<h3 class="group-title">Stock adjustments</h3>` + table(
         [{ label: "Date" }, { label: "Product" }, { label: "Units", num: true }, { label: "Cost/unit", num: true }],
-        adjRows, "")}</details>` : "");
+        adjRows, "") : "");
   };
 
   // ---------- Sales ----------
@@ -462,7 +529,7 @@
     const m = Calc.periodStats(data, snap, month);
     const all = Calc.periodStats(data, snap, null);
     const today = Calc.today();
-    const rows = data.sales.slice().sort((a, b) => (a.date < b.date ? 1 : -1)).map((s) => {
+    const saleRow = (s) => {
       const profit = Calc.saleProfit(s, snap);
       const owed = Calc.saleOwed(s);
       const overdue = owed > 0 && s.dueDate && s.dueDate < today;
@@ -486,16 +553,20 @@
           paidCell,
         ],
       };
-    });
+    };
+    const cols = [{ label: "Date" }, { label: "Product" }, { label: "Qty", num: true }, { label: "Price/unit", num: true }, { label: "Revenue", num: true },
+      { label: "Cost", num: true }, { label: "Profit", num: true }, { label: "Paid" }];
+    const newest = data.sales.slice().sort((a, b) => (a.date < b.date ? 1 : -1));
+    const unpaid = newest.filter((s) => Calc.saleOwed(s) > 0); // current: still waiting for the money
     return sectionHead("Sales", btn("Record sale", "add-sale", "", "btn-primary")) +
       `<div class="stats">
         ${stat("Revenue this month", money(m.revenue), `All time: ${money(all.revenue)}`)}
         ${stat("Profit this month", money(m.gross), `All time: <span class="${tone(all.gross)}">${money(all.gross)}</span>`, tone(m.gross))}
         ${stat("Units sold this month", String(m.units), `All time: ${all.units}`)}
       </div>` +
-      table([{ label: "Date" }, { label: "Product" }, { label: "Qty", num: true }, { label: "Price/unit", num: true }, { label: "Revenue", num: true },
-        { label: "Cost", num: true }, { label: "Profit", num: true }, { label: "Paid" }],
-        rows, "No sales yet.");
+      (unpaid.length ? `<h3 class="group-title">Not paid yet</h3>` + table(cols, unpaid.map(saleRow), "") : "") +
+      (!newest.length ? empty("No sales yet.") : "") +
+      historyBlock(newest.length ? `<h3 class="group-title">Sales history</h3>` + table(cols, newest.map(saleRow), "") : "");
   };
 
   // ---------- Spent ----------
@@ -542,8 +613,9 @@
             <div class="bar"><span style="width:${Math.max(2, (t.total / maxTotal) * 100)}%"></span></div>
           </div>`).join("") : `<p class="muted">No expenses in this period.</p>`}</div>
       </div>` +
-      table([{ label: "Date" }, { label: "Category" }, { label: "Description" }, { label: "Product" }, { label: "Paid from" }, { label: "Amount", num: true }],
-        rows, "No expenses in this period.");
+      historyBlock(rows.length ? `<h3 class="group-title">Expenses</h3>` +
+        table([{ label: "Date" }, { label: "Category" }, { label: "Description" }, { label: "Product" }, { label: "Paid from" }, { label: "Amount", num: true }],
+          rows, "") : "");
   };
 
   // ---------- Accounts ----------
@@ -558,6 +630,7 @@
   // One history row. With an account filter, a move shows as in or out of that
   // account; with "All" it's neutral (the overall balance doesn't change).
   function historyRow(t, acc) {
+    if (t.debtEvent) return debtHistoryRow(t);
     const isMove = t.type === "transfer";
     const kind = isMove ? "Moved" : t.cashCount ? "Balance set" : t.amount < 0 ? "Taken out" : "Added";
     const icon = isMove ? "⇄" : t.cashCount ? "=" : t.amount < 0 ? "−" : "+";
@@ -575,6 +648,23 @@
         <span class="hist-amt ${amount === null ? "" : tone(amount)}">${amount === null ? money(t.amount) : signed(amount)}</span>
       </button>`;
   }
+  // Money borrowed into an account, or paid back from one (I owe). Tap = the debt's sheet.
+  function debtHistoryRow(t) {
+    const kind = t.debtEvent === "borrow" ? "Borrowed" : "Paid back";
+    return `<button type="button" class="hist-row" data-action="edit-debt" data-id="${esc(t.id)}">
+        <span class="hist-icon" aria-hidden="true">${t.amount < 0 ? "−" : "+"}</span>
+        <span class="hist-main">
+          <span class="hist-note">${kind} ${t.debtEvent === "borrow" ? "from" : "to"} ${esc(t.who)}</span>
+          <span class="hist-meta"><span>I owe</span>${badge(esc(accountName(t.accountId)))}</span>
+        </span>
+        <span class="hist-amt ${tone(t.amount)}">${signed(t.amount)}</span>
+      </button>`;
+  }
+  // Debt money movements as history entries: { id (debt id), debtEvent, date, accountId, amount (+/−), who }
+  const debtEvents = (data) => (data.debts || []).flatMap((x) => [
+    ...(x.accountId ? [{ id: x.id, debtEvent: "borrow", date: x.date, accountId: x.accountId, amount: Number(x.amount) || 0, who: x.who }] : []),
+    ...(x.payments || []).map((p) => ({ id: x.id, debtEvent: "payback", date: p.date, accountId: p.accountId, amount: -(Number(p.amount) || 0), who: x.who })),
+  ]);
   // Rows grouped under a small date header, newest first
   function historyList(list, acc) {
     let html = "", lastDate = null;
@@ -590,7 +680,7 @@
 
   PAGES.accounts = (data, snap) => {
     const acc = acctUi.filter;
-    const sorted = data.transfers.filter((t) => touches(t, acc)).sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
+    const sorted = [...data.transfers, ...debtEvents(data)].filter((t) => touches(t, acc)).sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
     // "Set balance" corrections aren't money in or out, so they're listed on their own
     const moves = sorted.filter((t) => !t.cashCount);
     const corrections = sorted.filter((t) => t.cashCount);
@@ -623,12 +713,13 @@
       </div>
       <div class="acct-actions">
         ${btn("Add", "acct-add", "", "btn-primary")}${btn("Take out", "acct-take")}${btn("Move", "acct-move")}
-      </div>
-      <h3 class="group-title">Money in and out</h3>
-      <div class="chips">${chip("", "All")}${PNL_BUILT_IN.map(([id, name]) => chip(id, name)).join("")}</div>` +
-      (shown.length ? historyList(shown, acc) : empty(acc ? `Nothing in or out of ${esc(accountName(acc))} yet.` : "Nothing added, taken out or moved yet.")) +
-      (moves.length > shown.length ? `<div class="show-more">${btn(`Show more (${moves.length - shown.length} left)`, "acct-more")}</div>` : "") +
-      (corrections.length ? `<h3 class="group-title">Balance corrections</h3>` + historyList(corrections, acc) : "");
+      </div>` +
+      historyBlock(!data.transfers.length && !debtEvents(data).length ? "" :
+        `<h3 class="group-title">Money in and out</h3>
+        <div class="chips">${chip("", "All")}${PNL_BUILT_IN.map(([id, name]) => chip(id, name)).join("")}</div>` +
+        (shown.length ? historyList(shown, acc) : empty(acc ? `Nothing in or out of ${esc(accountName(acc))} yet.` : "Nothing added, taken out or moved yet.")) +
+        (moves.length > shown.length ? `<div class="show-more">${btn(`Show more (${moves.length - shown.length} left)`, "acct-more")}</div>` : "") +
+        (corrections.length ? `<h3 class="group-title">Balance corrections</h3>` + historyList(corrections, acc) : ""));
   };
 
   // ================= Forms =================
@@ -967,6 +1058,83 @@
       });
       render();
       paymentForm(saleId);
+    });
+  }
+
+  // ---------- I owe (a debt) ----------
+  // "Money came into" is optional: borrowed cash adds to that account; a debt
+  // for something else (e.g. stock on credit) moves no money. Never income or an expense.
+  function debtForm(id) {
+    const x = id ? Store.get("debts", id) : { who: "", amount: "", note: "", date: Calc.today(), dueDate: "", accountId: "", payments: [] };
+    if (!x) return;
+    const paid = Calc.debtPaid(x);
+    const left = Calc.debtLeft(x);
+    openForm(id ? `I owe: ${x.who}` : "I owe", `
+      ${id ? `<div class="preview">
+        <span>Owed <b>${money(x.amount)}</b></span>
+        <span>Paid back <b>${money(paid)}</b></span>
+        <span>Left <b class="${left > 0 ? "neg" : ""}">${money(left)}</b></span>
+      </div>` : ""}
+      ${row(field("Who I owe", textInput("who", x.who, 'required placeholder="Name"')),
+            field("Amount", moneyInput("amount", x.amount, "required")))}
+      ${field("What it's for", textInput("note", x.note, 'placeholder="e.g. Borrowed cash, 20 units on credit"'))}
+      ${row(field("Date", dateInput("date", x.date, "required")), field("Due date (optional)", dateInput("dueDate", x.dueDate)))}
+      ${field("Money came into", select("accountId", [["", "No money came in"], ...accountOptions()], x.accountId || ""), "Borrowed cash? Pick where it went.")}`,
+    (v) => {
+      if (!v.who) return "Enter who you owe.";
+      const amount = Calc.round2(num(v.amount));
+      if (!(amount > 0)) return "Enter an amount above 0.";
+      if (amount < paid - 0.005) return `You've already paid back ${money(paid)}. Remove pay-backs first (Pay back…).`;
+      if (v.dueDate && v.dueDate < v.date) return "The due date can't be before the date.";
+      const item = { ...x, id: x.id || Store.uid(), who: v.who, amount, note: v.note, date: v.date, dueDate: v.dueDate, accountId: v.accountId, payments: x.payments || [] };
+      return Store.commit((d) => upsertIn(d.debts, item));
+    }, {
+      onDelete: id ? () => Store.commit((d) => removeFrom(d.debts, id)) : null,
+      confirmText: "Delete this debt? Any money it added and its pay-backs come off your accounts too. This can't be undone.",
+      extra: id ? [[left > 0 ? "Pay back…" : "Pay-backs…", () => payBackForm(id)]] : [],
+    });
+  }
+
+  // Pay back part or all of a debt. Money leaves the account picked; profit is unchanged.
+  function payBackForm(debtId) {
+    const x = Store.get("debts", debtId);
+    if (!x) return;
+    const left = Calc.debtLeft(x);
+    const payments = (x.payments || []).slice().sort((a, b) => (a.date < b.date ? -1 : 1));
+    const form = openForm(`Pay back: ${x.who}`, `
+      <div class="preview">
+        <span>Owed <b>${money(x.amount)}</b></span>
+        <span>Paid back <b>${money(Calc.debtPaid(x))}</b></span>
+        <span>Left <b class="${left > 0 ? "neg" : ""}">${money(left)}</b></span>
+      </div>
+      ${payments.length ? `<ul class="cat-list">${payments.map((p) => `
+        <li><span>${fmtDate(p.date)} · ${esc(accountName(p.accountId))} · <b>${money(p.amount)}</b></span>
+          <button type="button" class="btn btn-sm btn-ghost danger" data-remove-payment="${esc(p.id)}">Remove</button></li>`).join("")}</ul>` : ""}
+      ${left > 0 ? `
+        ${row(field("Amount", moneyInput("amount", left, "required"), "Less than what's left = a part payment."),
+              field("Date", dateInput("date", Calc.today(), "required")))}
+        ${field("Paid from", select("accountId", accountOptions(), x.accountId || CASH_ID))}` : `<p class="muted">Fully paid back.</p>`}`,
+    (v) => {
+      if (!(left > 0)) return "This is already fully paid back.";
+      const amount = Calc.round2(num(v.amount));
+      if (!(amount > 0)) return "Enter an amount above 0.";
+      if (amount > left) return `Only ${money(left)} is left to pay back.`;
+      const payment = { id: Store.uid(), amount, date: v.date, accountId: v.accountId };
+      return Store.commit((d) => {
+        const y = d.debts.find((z) => z.id === debtId);
+        y.payments = [...(y.payments || []), payment];
+      });
+    }, { submitLabel: "Pay back" });
+
+    form.addEventListener("click", (e) => {
+      const b = e.target.closest("[data-remove-payment]");
+      if (!b || !confirm("Remove this pay-back? The money goes back onto its account.")) return;
+      Store.commit((d) => {
+        const y = d.debts.find((z) => z.id === debtId);
+        y.payments = (y.payments || []).filter((p) => p.id !== b.dataset.removePayment);
+      });
+      render();
+      payBackForm(debtId);
     });
   }
 
@@ -1351,6 +1519,17 @@
     "add-sale": () => saleForm(),
     "quick-sale": () => saleForm(null, null, { quick: true }),
     "mark-paid": paymentForm,
+    "add-debt": () => debtForm(),
+    "edit-debt": debtForm,
+    "toggle-history": () => {
+      histOpen = !histOpen;
+      render();
+      if (histOpen) {
+        const box = root.querySelector(".pnl-page:not(.leaving) .pnl-history");
+        if (box && canAnimate()) box.scrollIntoView({ behavior: "smooth", block: "start" });
+        else if (box) box.scrollIntoView({ block: "start" });
+      }
+    },
     "sell-product": (id) => saleForm(null, id),
     "edit-sale": saleForm,
     "delete-sale": (id) => confirmDelete("sale", "sales", id),
@@ -1378,6 +1557,7 @@
     "acct-filter": (id = "") => {
       acctUi.filter = acctUi.filter === id && id ? "" : id;
       acctUi.shown = HISTORY_STEP;
+      if (acctUi.filter) histOpen = true; // a tile filters the history, so show it
       render();
     },
     "acct-more": () => { acctUi.shown += HISTORY_STEP; render(); },
@@ -1485,7 +1665,8 @@
     return true;
   }
 
-  window.addEventListener("hashchange", () => { const was = onPnl; if (readHash()) render(was); });
+  // Opening a PnL page (or coming back to the PnL tab) always starts with history hidden
+  window.addEventListener("hashchange", () => { const was = onPnl; if (readHash()) { histOpen = false; render(was); } });
 
   // Day counts ("ordered 3 days ago", "overdue by 2 days") and repeating
   // expenses stay current if the page is left open past midnight.

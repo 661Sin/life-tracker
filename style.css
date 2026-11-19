@@ -510,6 +510,17 @@ td.actions { width: 1%; white-space: nowrap; }
 .history summary { cursor: pointer; color: var(--text-muted); font-size: 14px; padding: 8px 0 12px; }
 .history summary:hover { color: var(--text); }
 
+/* PnL history: hidden under a small glass "Show history" button at the bottom of each page */
+.pnl-history { margin-top: 8px; }
+.show-history { display: flex; justify-content: center; margin: 24px 0 8px; }
+.history-toggle { color: var(--text-muted); }
+.history-toggle[aria-expanded="true"] { color: var(--text); }
+
+/* Dashboard: "Owed to me" and "I owe" tiles side by side (also on a phone) */
+.debt-tiles { grid-template-columns: 1fr 1fr; margin-top: 12px; }
+.stat-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 28px; }
+.stat-head .btn-sm { padding: 3px 10px; }
+
 /* ---------- Forms ---------- */
 .form { display: flex; flex-direction: column; gap: 14px; }
 .form p { margin: 0; }

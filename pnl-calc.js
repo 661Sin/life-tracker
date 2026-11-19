@@ -130,6 +130,30 @@ const Calc = {
       }))
       .sort((a, b) => (a.sale.date < b.sale.date ? -1 : a.sale.date > b.sale.date ? 1 : 0));
   },
+  // Paid-later sales that are fully paid now, newest last payment first
+  paidOffSales(data) {
+    const last = (s) => (s.payments || []).reduce((m, p) => (p.date > m ? p.date : m), s.date);
+    return data.sales.filter((s) => s.paidLater && this.saleOwed(s) === 0)
+      .sort((a, b) => (last(a) < last(b) ? 1 : last(a) > last(b) ? -1 : 0));
+  },
+
+  // ---- I owe (money I owe other people) ----
+  debtPaid(x) { return this.sum(x.payments || [], (p) => Number(p.amount) || 0); },
+  debtLeft(x) { return Math.max(0, this.round2((Number(x.amount) || 0) - this.debtPaid(x))); },
+  debtLastPaid(x) { return (x.payments || []).reduce((m, p) => (p.date > m ? p.date : m), x.date); },
+  // Debts not fully paid back, oldest first: { debt, left, overdue, days (since the debt) }
+  debtList(data, today) {
+    return (data.debts || [])
+      .filter((x) => this.debtLeft(x) > 0)
+      .map((x) => ({ debt: x, left: this.debtLeft(x), overdue: !!(x.dueDate && x.dueDate < today), days: this.daysBetween(x.date, today) }))
+      .sort((a, b) => (a.debt.date < b.debt.date ? -1 : a.debt.date > b.debt.date ? 1 : 0));
+  },
+  // Fully paid back, newest last payment first
+  paidOffDebts(data) {
+    return (data.debts || []).filter((x) => this.debtLeft(x) === 0)
+      .sort((a, b) => (this.debtLastPaid(a) < this.debtLastPaid(b) ? 1 : -1));
+  },
+
   saleCost(s, snap) { return snap.inv.saleCogs[s.id] || 0; },
   // Expected cost of goods for a sale not saved yet (used by the forms' previews)
   estimateSaleCost(snap, productId, qty) {
@@ -289,6 +313,11 @@ const Calc = {
       if (t.type === "adjust") add(t.accountId, Number(t.amount) || 0);
       else { add(t.fromId, -(Number(t.amount) || 0)); add(t.toId, Number(t.amount) || 0); }
     }
+    // I owe: borrowed money comes in (if it went into an account), pay-backs go out
+    for (const x of data.debts || []) {
+      if (x.accountId) add(x.accountId, Number(x.amount) || 0);
+      for (const p of x.payments || []) add(p.accountId, -(Number(p.amount) || 0));
+    }
     return b;
   },
 
@@ -306,9 +335,10 @@ const Calc = {
     const onTheWayValue = this.sum(incoming, (o) => this.orderTotal(o));
     const onTheWayUnits = this.sum(incoming, (o) => Number(o.qty) || 0);
     const owedTotal = this.sum(data.sales, (s) => this.saleOwed(s));
+    const iOweTotal = this.sum(data.debts || [], (x) => this.debtLeft(x));
     return {
-      inv, balances, cashTotal, stockValue, stockUnits, onTheWayValue, onTheWayUnits, owedTotal,
-      capital: cashTotal + stockValue + owedTotal, // stock on the way is not counted
+      inv, balances, cashTotal, stockValue, stockUnits, onTheWayValue, onTheWayUnits, owedTotal, iOweTotal,
+      capital: cashTotal + stockValue + owedTotal - iOweTotal, // stock on the way is not counted; what I owe is taken off
     };
   },
 
